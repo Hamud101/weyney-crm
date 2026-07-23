@@ -1,0 +1,9 @@
+# Server-side backups made during scp deploys — never part of the source
+*.bak-*
+*.bak
+
+# Secrets and data never live in the web root; they sit in ~/appdata/crm on the
+# server (secrets.php, crm.sqlite). Belt and braces in case one is ever copied in.
+secrets.php
+*.sqlite
+*.sqlite-journal

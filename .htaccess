@@ -1,0 +1,16 @@
+RedirectMatch 403 ^/crm/sync.php$
+RedirectMatch 403 ^/crm/(lib|data)/.*$
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /crm/
+  # Google redirects to the extensionless path registered in the console.
+  RewriteRule ^oauth/google/callback/?$ oauth_google.php [L,QSA]
+</IfModule>
+
+<IfModule mod_headers.c>
+  Header set X-Content-Type-Options "nosniff"
+  Header set X-Frame-Options "DENY"
+  Header set Referrer-Policy "same-origin"
+</IfModule>

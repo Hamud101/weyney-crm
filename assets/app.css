@@ -1,0 +1,456 @@
+/* Weyney CRM — original brand system restored.
+   Palette, type and layout lifted from the artifact: light, near-monochrome,
+   accent IS near-black. Kept from the rebuild: bigger disposition buttons,
+   one job per panel, and a top bar that now carries queue context instead of
+   sitting empty. */
+
+@font-face{
+  font-family:'Archivo';
+  src:url('/crm/assets/archivo.woff2') format('woff2');
+  font-weight:400 700; font-style:normal; font-display:swap;
+}
+
+:root{
+  --ground:#f7f7f8; --surface:#ffffff; --s2:#f1f1f2; --s3:#e7e8e9;
+  --ink:#101112; --soft:#6e7176; --faint:#8b8e93;
+  --line:#e7e8e9; --line2:#f1f1f2;
+  --accent:#101112; --accent-ink:#ffffff; --accent-wash:#eceded;
+  --ok:#1f6b3f;   --ok-wash:#eaf3ee;
+  --warn:#7a5a00; --warn-wash:#f7f2e2;
+  --bad:#a32020;  --bad-wash:#f7eaea;
+  --info:#1f4f9c; --info-wash:#eaf0fa;
+  --sh:0 1px 2px rgba(16,17,18,.05),0 3px 12px rgba(16,17,18,.05);
+  --lift:0 8px 28px rgba(16,17,18,.16);
+}
+*{box-sizing:border-box}
+html{height:100%}
+body{
+  margin:0;background:var(--ground);color:var(--ink);
+  font-family:'Archivo',ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  display:flex;height:100vh;overflow:hidden;
+}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+input,textarea{font:inherit;color:inherit}
+/* .rail and .main live inside #app, so #app must be the flex row — not body.
+   Getting this wrong stacks the rail above the content and leaves the page
+   pinned to a narrow column. */
+#app{display:flex;flex:1;min-width:0;width:100%;height:100vh;overflow:hidden}
+.mono{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace}
+.sect{font-size:9.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;
+      color:var(--faint);border-bottom:1px solid var(--line2);padding-bottom:5px;margin-bottom:11px}
+
+/* ---------- login ---------- */
+body.gate{display:grid;place-items:center;overflow:auto}
+.login{width:min(330px,90vw);text-align:center}
+/* The mark carries its own generous whitespace, so it needs no container. */
+.login .mark{display:block;width:132px;height:auto;margin:0 auto 4px}
+.login h1{margin:0;font-size:22px;font-weight:700;letter-spacing:-.01em}
+.login .sub{margin:.15rem 0 1.5rem;color:var(--faint);font-size:11px;
+  font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+.login input{width:100%;padding:12px 14px;border-radius:9px;border:1px solid var(--line);
+  background:var(--surface);margin-bottom:9px;box-shadow:var(--sh)}
+.login input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.login button{width:100%;padding:12px;border-radius:9px;background:var(--accent);
+  color:var(--accent-ink);font-weight:700;font-size:14px}
+.login .err{margin-top:11px;color:var(--bad);font-size:13px}
+
+/* ---------- rail ---------- */
+.rail{flex:0 0 66px;background:var(--surface);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:6px;z-index:10}
+.logo{display:grid;place-items:center;width:52px;height:44px;margin-bottom:8px;border-radius:9px}
+.logo:hover{background:var(--s2)}
+.logo img{width:100%;height:auto;display:block}
+.rail .rbtn{width:48px;height:46px;border-radius:10px;display:grid;place-items:center;
+  color:var(--soft);position:relative}
+.rail .rbtn:hover{background:var(--s2);color:var(--ink)}
+.rail .rbtn.on{background:var(--accent);color:var(--accent-ink)}
+.rail .rbtn svg{width:23px;height:23px;fill:currentColor}
+.rail .rbtn.alert{color:var(--warn)}
+.rail .rbtn.alert::after{content:'';position:absolute;top:7px;right:9px;width:7px;height:7px;
+  border-radius:50%;background:var(--warn)}
+.rail .rbtn .dot{position:absolute;top:5px;right:7px;min-width:15px;height:15px;padding:0 3px;
+  border-radius:9px;background:var(--bad);color:#fff;font-size:9.5px;font-weight:700;
+  display:grid;place-items:center}
+.rail .spacer{flex:1}
+
+/* ---------- main ---------- */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.head{flex:0 0 auto;background:var(--surface);border-bottom:1px solid var(--line);
+  padding:10px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.appname{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--faint);border:1px solid var(--line);border-radius:20px;padding:4px 11px;white-space:nowrap}
+.head .grow{flex:1}
+.head .ctx{font-size:13px;color:var(--soft)}
+.head .ctx b{color:var(--ink);font-weight:700}
+.headbar{flex:0 0 160px;height:5px;background:var(--s2);border-radius:20px;overflow:hidden}
+.headbar i{display:block;height:100%;background:var(--accent);border-radius:20px;transition:width .3s}
+.linkish{font-size:12px;color:var(--faint);text-decoration:none}
+.linkish:hover{color:var(--ink)}
+.linkish.good{color:var(--ok)} .linkish.warn{color:var(--warn)}
+
+/* The body is a column so the call panel can grow into the leftover height
+   instead of leaving a dead band under the card. */
+.body{flex:1;overflow:auto;padding:14px 16px 16px;display:flex;flex-direction:column}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;
+  box-shadow:var(--sh);overflow:hidden}
+/* Fill the viewport — no centred column. On a wide monitor a 1080px cap left
+   most of the screen empty. */
+.wrap{width:100%;max-width:none;margin:0;flex:1;display:flex;flex-direction:column;min-height:0}
+.panel.calls{flex:1;display:flex;min-height:0}
+.panel.calls .qcard{flex:1;min-height:0}
+.qleft,.qright{overflow:auto}
+
+/* ---------- stage chips ---------- */
+.stages{display:flex;gap:6px;overflow-x:auto;padding-bottom:12px;scrollbar-width:none}
+.stages::-webkit-scrollbar{display:none}
+.stages button{white-space:nowrap;padding:6px 12px;border-radius:20px;font-size:12.5px;
+  font-weight:600;background:var(--surface);border:1px solid var(--line);color:var(--soft)}
+.stages button:hover{border-color:var(--accent-soft,#a6a9ad);color:var(--ink)}
+.stages button.on{background:var(--accent);border-color:transparent;color:var(--accent-ink)}
+.stages button i{font-style:normal;opacity:.6;margin-left:6px}
+
+/* ---------- call card: two columns, as before ---------- */
+.qcard{display:grid;grid-template-columns:minmax(300px,360px) minmax(0,1fr);align-items:stretch}
+@media(min-width:1500px){
+  /* Buttons don't get better with width; reading does. Cap the action column
+     and hand everything else to the information side. */
+  .qcard{grid-template-columns:380px minmax(0,1fr)}
+}
+.qleft{padding:22px 24px;min-width:0}
+.qright{padding:22px 24px;border-left:1px solid var(--line);background:var(--ground);min-width:0}
+
+.qwho{font-size:23px;font-weight:700;letter-spacing:-.02em;line-height:1.22}
+.qmeta{color:var(--soft);font-size:13px;margin-top:5px}
+.qmeta b{color:var(--ink);font-weight:600}
+.tag{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;padding:3px 8px;border-radius:20px;background:var(--s2);color:var(--soft)}
+
+.phone{margin:18px 0 0;font-size:29px;font-weight:700;letter-spacing:.005em}
+.phone a{color:var(--ink);text-decoration:none}
+.phone a:hover{color:var(--soft)}
+.qdial{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}
+.btn{padding:8px 13px;border-radius:8px;border:1px solid var(--line);background:var(--s2);
+  font-size:12.5px;font-weight:600}
+.btn:hover{background:var(--s3)}
+.btn-p{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.btn-p:hover{background:#000}
+
+/* One record: the imported research note sits at the head of the same panel as
+   the activity log, because both answer "what do I know about this lead". */
+.record{margin-top:22px}
+.origin{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--accent);
+  border-radius:9px;padding:14px 16px;margin-bottom:12px;box-shadow:var(--sh);
+  font-size:15.5px;line-height:1.6;color:var(--ink);font-weight:500}
+
+.hist{margin-top:20px}
+.notebox{margin-top:20px}
+.notebox textarea{width:100%;padding:11px 13px;border-radius:9px;border:1px solid var(--line);
+  background:var(--surface);font-size:14.5px;line-height:1.5;resize:vertical;box-shadow:var(--sh)}
+.notebox textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.notebox .btn{margin-top:9px}
+.nbfield{display:block;width:100%;padding:10px 12px;border-radius:9px;border:1px solid var(--line);
+  background:var(--surface);font-size:14.5px;box-shadow:var(--sh);margin-bottom:8px}
+.nbfield:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.hist .row{padding:12px 0;border-bottom:1px solid var(--line2)}
+.hist .row p{margin:3px 0 0;font-size:15px;line-height:1.6;color:var(--ink);
+  white-space:pre-wrap}          /* notes carry their own line breaks */
+.hist .row p strong{display:block;margin-bottom:4px}
+.hist .row:last-child{border-bottom:0}
+.hist time{display:block;color:var(--soft);font-size:11.5px;font-weight:700;
+  letter-spacing:.05em;text-transform:uppercase}
+
+/* dispositions — kept large from the rebuild, they worked */
+.dgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.dgrid .disp{min-height:48px}
+.disp{padding:13px 12px;border-radius:9px;border:1px solid var(--line);background:var(--surface);
+  font-size:13.5px;font-weight:620;text-align:center}
+.disp:hover{box-shadow:var(--sh);border-color:var(--accent-soft,#a6a9ad)}
+.disp.wide{grid-column:1 / -1}
+.disp.ok{color:var(--ok);background:var(--ok-wash);border-color:#cfe3d8}
+.disp.warn{color:var(--warn);background:var(--warn-wash);border-color:#e8dfc2}
+.disp.bad{color:var(--bad);background:var(--bad-wash);border-color:#ecd2d2}
+.disp.info{background:var(--info);color:#fff;border-color:transparent;font-size:15px;
+  font-weight:700;min-height:54px;box-shadow:0 1px 2px rgba(31,79,156,.25),0 4px 14px rgba(31,79,156,.2)}
+.disp.info:hover{background:#173d7a}
+.disp.demo{background:var(--ok);color:#fff;border-color:transparent;
+  font-size:16px;font-weight:700;min-height:60px;letter-spacing:.01em;
+  box-shadow:0 1px 2px rgba(31,107,63,.25),0 4px 14px rgba(31,107,63,.22)}
+.disp.demo:hover{background:#175732}
+
+/* ---------- lists ---------- */
+.list{display:flex;flex-direction:column;gap:8px}
+.item{display:flex;align-items:center;gap:13px;padding:12px 14px;background:var(--surface);
+  border:1px solid var(--line);border-radius:10px;box-shadow:var(--sh)}
+.item .nm{font-weight:650}
+.item .sub{color:var(--soft);font-size:12.5px}
+.item .when{margin-left:auto;text-align:right;font-size:12.5px;color:var(--soft);white-space:nowrap}
+.item .when.over{color:var(--bad);font-weight:600}
+.empty{text-align:center;color:var(--faint);padding:54px 20px}
+.empty b{display:block;color:var(--soft);font-size:15px;margin-bottom:5px;font-weight:650}
+
+/* ---------- sheet ---------- */
+.sheet-bg{position:fixed;inset:0;background:rgba(16,17,18,.35);z-index:40;display:grid;place-items:center;padding:16px}
+.sheet{width:min(460px,100%);background:var(--surface);border:1px solid var(--line);
+  border-radius:14px;padding:20px;box-shadow:var(--lift)}
+.sheet h3{margin:0 0 3px;font-size:17px;font-weight:700}
+.sheet .who{color:var(--soft);font-size:13px;margin-bottom:15px}
+.quick{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:13px}
+.quick button{padding:10px;border-radius:8px;background:var(--s2);border:1px solid var(--line);font-size:12.5px;font-weight:600}
+.quick button:hover{background:var(--s3)}
+.sheet label{display:block;font-size:9.5px;font-weight:700;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--faint);margin:11px 0 5px}
+.sheet input,.sheet textarea{width:100%;padding:10px 12px;border-radius:8px;
+  border:1px solid var(--line);background:var(--surface)}
+.sheet .acts{display:flex;gap:8px;margin-top:16px}
+.sheet .acts button{flex:1;padding:11px;border-radius:9px;font-weight:700;font-size:13.5px}
+.sheet .acts .go{background:var(--accent);color:var(--accent-ink)}
+.sheet .acts .cancel{background:var(--s2);border:1px solid var(--line);color:var(--soft)}
+
+/* ---------- toast ---------- */
+.toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,70px);
+  background:var(--ink);color:#fff;border-radius:9px;padding:10px 17px;font-size:13px;
+  opacity:0;transition:.22s;z-index:60;pointer-events:none;box-shadow:var(--lift)}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+.boot{display:grid;place-items:center;height:100vh;width:100%;color:var(--faint)}
+
+/* ---------- phone: rail becomes a bottom bar, columns stack ---------- */
+@media(max-width:1000px){
+  .qcard{grid-template-columns:1fr}
+  .qright{border-left:0;border-top:1px solid var(--line)}
+}
+@media(max-width:640px){
+  body,#app{flex-direction:column}
+  .rail{flex:0 0 auto;flex-direction:row;width:100%;order:2;border-right:0;
+    border-top:1px solid var(--line);padding:6px 8px;justify-content:space-around;
+    padding-bottom:calc(6px + env(safe-area-inset-bottom))}
+  .logo{display:none}
+  .rail .spacer{display:none}
+  .rail .rbtn{width:auto;flex:1;height:38px}
+  .main{order:1}
+  .head{padding:9px 13px}
+  .headbar{flex:1 1 100%;order:5}
+  .body{padding:13px}
+  .qleft,.qright{padding:17px 16px}
+  .phone{font-size:26px}
+}
+
+/* ---------- dashboard ----------
+   Tiles carry the headline numbers; bars carry magnitude. Every bar is the same
+   accent hue on purpose — length is the encoding, and colouring the funnel
+   stages would imply they differ in kind rather than in count. Status colour
+   stays reserved for won/lost, always beside a label. */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;
+  padding:15px 16px;box-shadow:var(--sh)}
+.card .num{font-size:31px;font-weight:700;letter-spacing:-.02em;line-height:1.1;margin-top:7px;
+  font-variant-numeric:tabular-nums}
+.card .num .pc{font-size:18px;font-weight:600;color:var(--soft);margin-left:1px}
+.card .sub{margin-top:5px;font-size:12px;color:var(--soft)}
+.lbl{font-size:9.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--faint)}
+
+.split{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:940px){.split{grid-template-columns:1fr}}
+.phead{padding:13px 16px;border-bottom:1px solid var(--line);font-size:13px;font-weight:700}
+
+.funnel{display:flex;flex-direction:column;gap:9px;padding:15px 16px}
+.fstep{display:grid;grid-template-columns:104px 1fr 74px;align-items:center;gap:11px;font-size:12.5px}
+.fl{color:var(--soft)}
+.ftrack{background:var(--s2);border-radius:5px;height:22px;overflow:hidden}
+.fbar{display:block;height:100%;background:var(--accent);border-radius:5px;min-width:2px;
+  transition:width .35s}
+.fnum{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+.fnum em{display:block;font-style:normal;font-size:11px;font-weight:600;color:var(--faint)}
+
+.bars{padding:15px 16px;display:flex;flex-direction:column;gap:11px}
+.brow{display:grid;grid-template-columns:110px 1fr 40px;gap:10px;align-items:center;font-size:12.5px}
+.bl{color:var(--soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.btrack{height:8px;background:var(--s2);border-radius:5px;overflow:hidden}
+.bfill{display:block;height:100%;border-radius:5px;background:var(--accent)}
+.bn{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+
+.nudge{padding:14px 16px;margin-bottom:16px;font-size:13.5px;color:var(--soft);line-height:1.55}
+.nudge b{color:var(--ink)}
+.head .dim{color:var(--faint);font-weight:400}
+
+/* not interested: still reachable, no longer shouting */
+.quietbad{display:block;width:100%;margin-top:12px;padding:9px;border-radius:8px;
+  background:transparent;border:1px solid transparent;color:var(--faint);font-size:12.5px;font-weight:600}
+.quietbad:hover{color:var(--bad);border-color:#ecd2d2;background:var(--bad-wash)}
+
+/* the number IS the call button */
+.phone a{border-bottom:2px solid transparent;transition:border-color .15s}
+.phone a:hover{color:var(--ink);border-bottom-color:var(--accent)}
+.dialhint{display:block;font-size:11px;font-weight:600;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--faint);margin-top:5px}
+.barsempty{font-size:13px;color:var(--soft);line-height:1.55;padding:4px 0 2px}
+
+/* dials-per-day columns; the target line is the point of the chart */
+.pnote{float:right;font-size:11px;font-weight:600;color:var(--faint);text-transform:uppercase;letter-spacing:.07em}
+.cols{padding:18px 16px 12px}
+.colwrap{position:relative;display:grid;grid-auto-flow:column;grid-auto-columns:1fr;
+  gap:6px;align-items:end;height:150px}
+.col{display:flex;flex-direction:column;justify-content:flex-end;height:100%;gap:6px}
+.col i{display:block;width:100%;background:var(--s3);border-radius:4px 4px 0 0;min-height:0;
+  transition:height .3s}
+.col.today i{background:var(--accent)}
+.col span{font-size:10px;color:var(--faint);text-align:center;font-weight:600}
+.targetline{position:absolute;left:0;right:0;border-top:1.5px dashed var(--faint);pointer-events:none}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+
+/* contact surfaces, pulled out of the research note */
+.links{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:13px}
+.lnk{display:inline-flex;align-items:center;gap:6px;padding:7px 11px;border-radius:8px;
+  border:1px solid var(--line);background:var(--surface);box-shadow:var(--sh);
+  font-size:12.5px;font-weight:600;color:var(--ink);text-decoration:none;max-width:100%}
+.lnk:hover{border-color:var(--accent);background:var(--s2)}
+.lnk svg{width:14px;height:14px;fill:var(--soft);flex:0 0 auto}
+.lnk:hover svg{fill:var(--ink)}
+.lnk span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lnk.search{color:var(--soft);font-weight:500}
+
+/* short look-ahead so nothing lands unannounced */
+.lookahead{margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
+.lrow{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:12.5px}
+.lw{color:var(--ink);font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
+.ln{color:var(--soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.brow.stale{grid-template-columns:1fr auto}
+.brow.stale .bn{font-weight:600;color:var(--soft);font-size:12px}
+
+/* scheduled list on the dashboard */
+.list.flush{gap:0}
+.srow{display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--line2)}
+.srow:last-child{border-bottom:0}
+.sw{font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;min-width:132px}
+.sw.over{color:var(--bad)}
+.sn{color:var(--soft);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* email is the action, skip is an escape hatch — size says so */
+.btn.big{padding:11px 20px;font-size:14px}
+.btn.tiny{padding:6px 11px;font-size:11.5px;color:var(--faint);background:transparent;border-color:var(--line)}
+.btn.tiny:hover{color:var(--soft);background:var(--s2)}
+
+/* next-up strip */
+.lidx{width:20px;font-size:11px;font-weight:700;color:var(--faint);font-variant-numeric:tabular-nums}
+.lc{font-size:11.5px;color:var(--faint);white-space:nowrap}
+
+/* calendar */
+.calday{margin-bottom:12px}
+.calday.istoday{border-color:var(--accent)}
+.crow{display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--line2);cursor:pointer}
+.crow:last-child{border-bottom:0}
+.crow:hover{background:var(--s2)}
+.ct{font-weight:700;min-width:74px;font-variant-numeric:tabular-nums}
+.ct.over{color:var(--bad)}
+.cn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.synced{color:var(--ok);font-weight:700}
+
+/* client rows open a record */
+.item.click{cursor:pointer}
+.item.click:hover{border-color:var(--accent);background:var(--s2)}
+.backlink{margin-bottom:12px;font-size:13px;font-weight:600;color:var(--soft);padding:6px 0}
+.backlink:hover{color:var(--ink)}
+
+
+/* connection state — Calendar view only, in the header */
+.calpill{display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:20px;
+  font-size:12.5px;font-weight:700;text-decoration:none;white-space:nowrap;border:1px solid transparent}
+.calpill::before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor}
+.calpill.on{color:var(--ok);background:var(--ok-wash);border-color:#cfe3d8}
+.calpill.on:hover{background:#dceee4}
+.calpill.off{color:var(--warn);background:var(--warn-wash);border-color:#e8dfc2}
+.calpill.off:hover{background:#f2e9cf}
+
+.sheet .opt{font-weight:600;letter-spacing:0;text-transform:none;color:var(--faint)}
+.sheet .hint{font-size:12px;color:var(--soft);margin-top:6px;line-height:1.45}
+.meet{font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;text-decoration:none;
+  white-space:nowrap;background:var(--warn-wash);color:var(--warn);border:1px solid #e8dfc2}
+.meet:hover{background:#f2e9cf;border-color:var(--warn)}
+
+/* Clients, grouped by phase. Colour marks the group, not each row — a won
+   client and a first conversation shouldn't wear the same badge. */
+.cgroup{margin-bottom:20px}
+.ghead{display:flex;align-items:baseline;gap:10px;padding:0 2px 9px;
+  border-bottom:2px solid var(--line);margin-bottom:10px}
+.ghead b{font-size:14px;font-weight:700}
+.gsub{font-size:12px;color:var(--faint);flex:1}
+.gcount{font-size:12px;font-weight:700;color:var(--soft);
+  background:var(--s2);border-radius:20px;padding:2px 9px}
+.cgroup.won    .ghead{border-bottom-color:var(--ok)}
+.cgroup.won    .ghead b{color:var(--ok)}
+.cgroup.won    .gcount{background:var(--ok-wash);color:var(--ok)}
+.cgroup.proposal .ghead{border-bottom-color:var(--info)}
+.cgroup.proposal .ghead b{color:var(--info)}
+.cgroup.proposal .gcount{background:var(--info-wash);color:var(--info)}
+.cgroup.held   .ghead{border-bottom-color:var(--accent)}
+.cgroup.booked .ghead{border-bottom-color:var(--accent)}
+.cgroup.noshow .ghead{border-bottom-color:var(--warn)}
+.cgroup.noshow .ghead b{color:var(--warn)}
+.cgroup.noshow .gcount{background:var(--warn-wash);color:var(--warn)}
+.cgroup.nurture .ghead{opacity:.72}
+.nx{font-weight:700;font-variant-numeric:tabular-nums}
+.nx.none{font-weight:500;color:var(--faint)}
+
+/* add-client pill — same slot as the calendar pill, Clients view only */
+.addpill{padding:5px 13px;border-radius:20px;font-size:12.5px;font-weight:700;
+  background:var(--accent);color:var(--accent-ink);white-space:nowrap}
+.addpill:hover{background:#000}
+.sheet select.nbfield{margin-bottom:0;appearance:none;
+  background-image:linear-gradient(45deg,transparent 50%,var(--soft) 50%),
+                   linear-gradient(135deg,var(--soft) 50%,transparent 50%);
+  background-position:calc(100% - 17px) 52%,calc(100% - 12px) 52%;
+  background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:34px}
+.stagesel{width:100%;padding:11px 13px;border-radius:9px;border:1px solid var(--line);
+  background:var(--surface);font-size:14px;font-weight:600;box-shadow:var(--sh)}
+
+/* ---- What we know: standing facts, not a stream ---- */
+.know{margin-top:20px}
+.know + .notebox{margin-top:20px}
+.sect2.first{margin-top:0}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;margin:0 0 14px}
+.facts dt{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--faint);padding-top:2px}
+.facts dd{margin:0;font-size:14.5px;font-weight:600}
+.facts dd a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}
+.facts dd a:hover{border-bottom-color:var(--accent)}
+.sect2{font-size:9.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;
+  color:var(--faint);margin:18px 0 8px;display:flex;align-items:center;gap:8px}
+.editlink{font-size:10px;font-weight:700;letter-spacing:.06em;color:var(--accent);
+  text-transform:uppercase;padding:2px 7px;border-radius:5px;background:var(--s2)}
+.editlink:hover{background:var(--s3)}
+.pains{margin:0;padding:0;list-style:none}
+.pains li{position:relative;padding:7px 0 7px 18px;font-size:14.5px;line-height:1.5;
+  border-bottom:1px solid var(--line2)}
+.pains li:last-child{border-bottom:0}
+.pains li::before{content:'';position:absolute;left:2px;top:15px;width:5px;height:5px;
+  border-radius:50%;background:var(--bad)}
+.opp{font-size:14.5px;line-height:1.55;background:var(--ok-wash);border:1px solid #cfe3d8;
+  border-radius:9px;padding:11px 13px;color:var(--ink)}
+.know .muted{font-size:13.5px;color:var(--faint)}
+
+/* ---- activity log: out of the way until wanted ---- */
+.logwrap{margin-top:22px;border-top:1px solid var(--line);padding-top:12px}
+.logtoggle{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--faint);padding:4px 0}
+.logtoggle:hover{color:var(--ink)}
+.logwrap .hist{margin-top:6px}
+
+/* email lifted out of the notes, offered rather than assumed */
+.guess{font-size:12.5px;color:var(--soft);background:var(--s2);border-radius:8px;
+  padding:8px 11px;margin:-6px 0 14px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.guess b{color:var(--ink)}
+.nbfield.autofilled{border-color:var(--ok);background:var(--ok-wash)}
+
+/* activity: rendered once, revealed by class — no re-render, no scroll jump */
+.logwrap .hist{display:none}
+.logwrap.open .hist{display:block}
+.logtoggle i{display:inline-block;font-style:normal;transition:transform .15s;margin-right:3px}
+.logwrap.open .logtoggle i{transform:rotate(90deg)}
+
+/* more air on the reading side now that it has the room */
+.qright{padding:24px 28px}
+.know .facts dd{font-size:15px}
+.pains li{font-size:15px;padding:8px 0 8px 18px}
+.opp{font-size:15px}
+.phone.nonum{color:var(--faint);font-size:20px;font-weight:600}
+.lnk.instagram svg,.lnk.linkedin svg{opacity:.85}
