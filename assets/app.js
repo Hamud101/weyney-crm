@@ -627,6 +627,8 @@
         '<button data-quick="tom2">Tomorrow 2pm</button><button data-quick="week">Next week</button>' +
       '</div>' +
       '<label>Date &amp; time</label><input type="datetime-local" id="sch-when" value="' + S.sheet.when + '">' +
+      '<div class="whenbar"><span class="whenread" id="sch-read"></span>' +
+      '<button type="button" class="whendone" id="sch-done">Done</button></div>' +
       (k === 'demo'
         ? '<label>Invite them <span class="opt">— sends a Google Meet link</span></label>' +
           '<input type="email" id="sch-email" placeholder="their@email.com" value="' +
@@ -693,9 +695,33 @@
         if (k === 'tom9') { d = new Date(Date.now() + 864e5); d.setHours(9, 0, 0, 0); }
         if (k === 'tom2') { d = new Date(Date.now() + 864e5); d.setHours(14, 0, 0, 0); }
         if (k === 'week') { d = new Date(Date.now() + 7 * 864e5); d.setHours(9, 0, 0, 0); }
-        document.getElementById('sch-when').value = localValue(d);
+        var f = document.getElementById('sch-when');
+        f.value = localValue(d);
+        f.dispatchEvent(new Event('input'));   // keep the "Saves as …" line in step
       };
     });
+    var when = document.getElementById('sch-when');
+    if (when) {
+      // The browser's own picker has no OK button and covers Schedule, so it is
+      // never obvious that a pick has registered. Echo the value back in words,
+      // and give Done to dismiss the picker. Blurring on change is not an option
+      // here — that would close it after the date, before the time is chosen.
+      var read = document.getElementById('sch-read');
+      var show = function () {
+        if (!read) return;
+        var d = when.value ? new Date(when.value) : null;
+        if (!d || isNaN(d)) { read.textContent = 'No date picked yet'; read.className = 'whenread none'; return; }
+        read.className = 'whenread';
+        read.textContent = 'Saves as ' +
+          d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ' at ' +
+          d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      };
+      when.oninput = show;
+      when.onchange = show;
+      show();
+      var done = document.getElementById('sch-done');
+      if (done) done.onclick = function () { when.blur(); show(); };
+    }
     var nb = document.getElementById('nb');
     if (nb) nb.oninput = function () {
       var em = document.getElementById('nb-email');
