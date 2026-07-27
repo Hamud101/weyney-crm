@@ -482,10 +482,17 @@ case 'stats': {
              WHERE l.stage IN ('contacted','demo_set','demo_noshow','demo_done','proposal','nurture')
              ORDER BY last_ts ASC LIMIT 6")->fetchAll(),
         'today_calls' => $pdo->query("
-             SELECT e.id, e.starts_at, e.kind, l.name, l.phone, l.id lead_id
+             SELECT e.id, e.starts_at, e.kind, e.meet_link, l.name, l.phone, l.id lead_id
              FROM events e JOIN leads l ON l.id = e.lead_id
              WHERE e.status='scheduled' AND e.starts_at < " . strtotime('tomorrow') . "
              ORDER BY e.starts_at ASC")->fetchAll(),
+        /* Future demos, so their Meet link is always one click away on the
+           dashboard — not buried in the calendar. */
+        'upcoming_demos' => $pdo->query("
+             SELECT e.id, e.starts_at, e.meet_link, l.name, l.id lead_id
+             FROM events e JOIN leads l ON l.id = e.lead_id
+             WHERE e.status='scheduled' AND e.kind='demo' AND e.starts_at >= " . strtotime('tomorrow') . "
+             ORDER BY e.starts_at ASC LIMIT 12")->fetchAll(),
         'daily'      => $daily,
         'by_hour'    => $hours,
         'target'     => 100,

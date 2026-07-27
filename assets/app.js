@@ -401,12 +401,34 @@
             return '<div class="srow"><span class="sw' + (over ? ' over' : '') + '">' +
               when(e.starts_at) + '</span><span class="sn">' + esc(e.name) + '</span>' +
               '<span class="tag">' + (e.kind === 'demo' ? 'Demo' : 'Call back') + '</span>' +
+              (e.kind === 'demo' && e.meet_link
+                ? '<a class="meet" href="' + esc(e.meet_link) + '" target="_blank" rel="noopener" ' +
+                  'title="Join the meeting">Google Meet</a>'
+                : '') +
               '<button class="donebtn" data-complete="' + e.id + '" title="Mark this as done">Done</button></div>';
           }).join('') + '</div>'
         : '<div class="bars"><div class="barsempty">Nothing due today. Everything scheduled ' +
           'lives in Calendar and on your Google Calendar.</div></div>') + '</div>';
 
+    /* Upcoming demos with their Meet link right on the dashboard, so joining a
+       call never means digging through the calendar first. */
+    var demos = d.upcoming_demos || [];
+    var demopanel = demos.length
+      ? '<div class="panel"><div class="phead">Upcoming demos</div><div class="list flush">' +
+          demos.map(function (e) {
+            return '<div class="srow"><span class="sw">' + when(e.starts_at) + '</span>' +
+              '<span class="sn">' + esc(e.name) + '</span>' +
+              (e.meet_link
+                ? '<a class="meet" href="' + esc(e.meet_link) + '" target="_blank" rel="noopener" ' +
+                  'title="Join the meeting">Google Meet</a>'
+                : '<span class="nolink">no Meet link</span>') +
+              '<button class="donebtn" data-complete="' + e.id + '" title="Mark this demo as done">Done</button>' +
+            '</div>';
+          }).join('') + '</div></div>'
+      : '';
+
     return cards + nudge + daily + '<div style="margin-top:14px">' + sched + '</div>' +
+      (demopanel ? '<div style="margin-top:14px">' + demopanel + '</div>' : '') +
       '<div class="split" style="margin-top:14px">' + funnel + outcomes + '</div>' +
       '<div class="split" style="margin-top:14px">' + besttime + stale + '</div>';
   }
@@ -626,7 +648,9 @@
     /* While the calendar is open it takes over the sheet: just the date, the
        time and Done. The invite, the note and Schedule only reappear once a
        time is set, so the picker is never competing with the rest of the form. */
-    var body = S.sheet.calOpen
+    var body = S.sheet.confirming
+      ? confirmInvite()
+      : S.sheet.calOpen
       ? schedField()
       : '<div class="quick">' +
           '<button data-quick="3h">In 3 hours</button><button data-quick="tom9">Tomorrow 9am</button>' +
@@ -647,7 +671,8 @@
         '<div class="acts"><button class="cancel" data-close="1">Cancel</button>' +
         '<button class="go" data-save="1">Schedule</button></div>';
     return '<div class="sheet-bg" data-close="1"><div class="sheet' + (S.sheet.calOpen ? ' picking' : '') + '">' +
-      '<h3>' + (k === 'demo' ? 'Schedule a demo' : 'Set a callback') + '</h3>' +
+      '<h3>' + (S.sheet.confirming ? 'Send Google Meet invite?'
+               : k === 'demo' ? 'Schedule a demo' : 'Set a callback') + '</h3>' +
       '<div class="who">' + esc(S.sheet.lead.name) + '</div>' +
       body + '</div></div>';
   }
@@ -717,6 +742,17 @@
         '<div class="pap"><button type="button" class="' + (ap === 'AM' ? 'on' : '') + '" data-ap="AM">AM</button>' +
           '<button type="button" class="' + (ap === 'PM' ? 'on' : '') + '" data-ap="PM">PM</button></div></div>' +
       '<button type="button" class="pdone" data-pickdone="1">Done</button></div>';
+  }
+  /* Last look before a Meet invite goes out: exactly who gets emailed, and when. */
+  function confirmInvite() {
+    var d = new Date(S.sheet.dt);
+    var emails = (S.sheet.email || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    return '<div class="confirmbox">' +
+      '<p class="cmsg">A Google Meet link will be created and a calendar invite emailed to:</p>' +
+      '<ul class="clist">' + emails.map(function (e) { return '<li>' + esc(e) + '</li>'; }).join('') + '</ul>' +
+      '<p class="cwhen">' + esc(fmtRead(d)) + '</p></div>' +
+      '<div class="acts"><button class="cancel" data-unconfirm="1">Back</button>' +
+      '<button class="go" data-sendinvite="1">Send invite</button></div>';
   }
 
   function render() {
@@ -958,6 +994,9 @@
       });
     };
     var save = document.querySelector('[data-save]'); if (save) save.onclick = doSchedule;
+    var sendInv = document.querySelector('[data-sendinvite]'); if (sendInv) sendInv.onclick = commitSchedule;
+    var unconf = document.querySelector('[data-unconfirm]');
+    if (unconf) unconf.onclick = function () { S.sheet.confirming = false; render(); };
     var send = document.querySelector('[data-send]'); if (send) send.onclick = doEmail;
   }
 
@@ -970,14 +1009,21 @@
     });
   }
   function doSchedule() {
-    var l = S.sheet.lead, k = S.sheet.kind;
     if (!S.sheet.dt) return toast('Pick a time');
-    var em = document.getElementById('sch-email');
+    // A demo that will email an invite gets a confirmation step first, showing
+    // exactly who the Google Meet invite goes to.
+    if (S.sheet.kind === 'demo' && (S.sheet.email || '').trim() && !S.sheet.confirming) {
+      S.sheet.confirming = true; render(); return;
+    }
+    commitSchedule();
+  }
+  function commitSchedule() {
+    var l = S.sheet.lead, k = S.sheet.kind;
     api('schedule', { id: l.id, kind: k, when: schedWhenStr(),
-                      notes: document.getElementById('sch-note').value || '',
-                      invite_email: em ? (em.value || '').trim() : '' })
+                      notes: S.sheet.note || '',
+                      invite_email: k === 'demo' ? (S.sheet.email || '').trim() : '' })
       .then(function (r) {
-        if (r.error) return toast(r.error);
+        if (r.error) { S.sheet.confirming = false; render(); return toast(r.error); }
         var bits = [];
         if (r.calendar_synced) bits.push('calendar');
         if (r.trello_carded)   bits.push('Trello');
