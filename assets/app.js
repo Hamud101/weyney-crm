@@ -623,26 +623,33 @@
         '<div class="acts"><button class="cancel" data-close="1">Cancel</button>' +
         '<button class="go" data-send="1">Send</button></div></div></div>';
     }
-    return '<div class="sheet-bg" data-close="1"><div class="sheet">' +
+    /* While the calendar is open it takes over the sheet: just the date, the
+       time and Done. The invite, the note and Schedule only reappear once a
+       time is set, so the picker is never competing with the rest of the form. */
+    var body = S.sheet.calOpen
+      ? schedField()
+      : '<div class="quick">' +
+          '<button data-quick="3h">In 3 hours</button><button data-quick="tom9">Tomorrow 9am</button>' +
+          '<button data-quick="tom2">Tomorrow 2pm</button><button data-quick="week">Next week</button>' +
+        '</div>' +
+        schedField() +
+        (k === 'demo'
+          ? '<label>Invite them <span class="opt">— sends a Google Meet link</span></label>' +
+            '<input type="email" id="sch-email" placeholder="their@email.com" value="' +
+              esc(S.sheet.email || '') + '">' +
+            '<div class="hint">' + (S.sheet.lead.email
+              ? 'They will get a calendar invite with a Meet link.'
+              : 'No email on this lead yet — add one to send an invite, or leave blank to just block the time.') +
+            '</div>'
+          : '') +
+        '<label>Note</label><textarea id="sch-note" rows="2" placeholder="What to cover">' +
+          esc(S.sheet.note || '') + '</textarea>' +
+        '<div class="acts"><button class="cancel" data-close="1">Cancel</button>' +
+        '<button class="go" data-save="1">Schedule</button></div>';
+    return '<div class="sheet-bg" data-close="1"><div class="sheet' + (S.sheet.calOpen ? ' picking' : '') + '">' +
       '<h3>' + (k === 'demo' ? 'Schedule a demo' : 'Set a callback') + '</h3>' +
       '<div class="who">' + esc(S.sheet.lead.name) + '</div>' +
-      '<div class="quick">' +
-        '<button data-quick="3h">In 3 hours</button><button data-quick="tom9">Tomorrow 9am</button>' +
-        '<button data-quick="tom2">Tomorrow 2pm</button><button data-quick="week">Next week</button>' +
-      '</div>' +
-      schedField() +
-      (k === 'demo'
-        ? '<label>Invite them <span class="opt">— sends a Google Meet link</span></label>' +
-          '<input type="email" id="sch-email" placeholder="their@email.com" value="' +
-            esc(S.sheet.lead.email || '') + '">' +
-          '<div class="hint">' + (S.sheet.lead.email
-            ? 'They will get a calendar invite with a Meet link.'
-            : 'No email on this lead yet — add one to send an invite, or leave blank to just block the time.') +
-          '</div>'
-        : '') +
-      '<label>Note</label><textarea id="sch-note" rows="2" placeholder="What to cover"></textarea>' +
-      '<div class="acts"><button class="cancel" data-close="1">Cancel</button>' +
-      '<button class="go" data-save="1">Schedule</button></div></div></div>';
+      body + '</div></div>';
   }
   /* Server wants 'YYYY-MM-DD HH:MM' in local time. */
   function schedWhenStr() {
@@ -660,7 +667,8 @@
   function schedSheet(lead, kind, from) {
     var d = new Date(Date.now() + 864e5); d.setHours(9, 0, 0, 0);
     return { lead: lead, kind: kind, from: from, dt: snap5(d.getTime()),
-             calMonth: new Date(d.getFullYear(), d.getMonth(), 1).getTime(), calOpen: false };
+             calMonth: new Date(d.getFullYear(), d.getMonth(), 1).getTime(), calOpen: false,
+             email: lead.email || '', note: '' };
   }
   function fmtRead(d) {
     return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ' · ' +
@@ -797,6 +805,11 @@
     if (pkm) pkm.onchange = pkTime;
     var pdone = document.querySelector('[data-pickdone]');
     if (pdone) pdone.onclick = function () { S.sheet.calOpen = false; render(); };
+    // Keep the note and invite in state so opening the calendar doesn't wipe them.
+    var schEmail = document.getElementById('sch-email');
+    if (schEmail) schEmail.oninput = function () { S.sheet.email = schEmail.value; };
+    var schNote = document.getElementById('sch-note');
+    if (schNote) schNote.oninput = function () { S.sheet.note = schNote.value; };
     var nb = document.getElementById('nb');
     if (nb) nb.oninput = function () {
       var em = document.getElementById('nb-email');
