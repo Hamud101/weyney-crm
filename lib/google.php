@@ -184,3 +184,12 @@ function g_sync_event(array $ev, array $lead): array {
     error_log('gcal sync failed ' . $code . ' ' . json_encode($r));
     return [false, $r['error']['message'] ?? ('HTTP ' . $code)];
 }
+
+/** Remove an event from Google, notifying any attendees. 404/410 mean it is
+ *  already gone, which for our purposes is success. */
+function g_delete_event(string $gcalId): bool {
+    $calId = rawurlencode(cfg('google_calendar_id', 'primary'));
+    [$code] = g_api('DELETE', "/calendars/$calId/events/" . rawurlencode($gcalId), null,
+                    ['sendUpdates' => 'all']);
+    return ($code >= 200 && $code < 300) || $code === 404 || $code === 410;
+}

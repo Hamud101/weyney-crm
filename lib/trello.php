@@ -72,6 +72,13 @@ function t_sync_event(array $ev): array {
     return [false, 'HTTP ' . $code . ' ' . json_encode($r)];
 }
 
+/** A cancelled event's card is archived off the board. 404 means it is already
+ *  gone, which is fine. */
+function t_cancel_event(string $cardId): bool {
+    [$code] = t_req('PUT', '/cards/' . $cardId, ['closed' => 'true']);
+    return ($code >= 200 && $code < 300) || $code === 404;
+}
+
 /**
  * Sync everything scheduled within the window. Run from cron.
  * Only touches events that are new or changed since their last push, so

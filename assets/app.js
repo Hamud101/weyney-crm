@@ -398,12 +398,12 @@
       ((d.today_calls || []).length
         ? '<div class="list flush">' + d.today_calls.map(function (e) {
             var over = e.starts_at < Math.floor(Date.now() / 1000);
-            return '<div class="srow"><span class="sw' + (over ? ' over' : '') + '">' +
+            return '<div class="srow click" data-editevent="' + e.id + '"><span class="sw' + (over ? ' over' : '') + '">' +
               when(e.starts_at) + '</span><span class="sn">' + esc(e.name) + '</span>' +
               '<span class="tag">' + (e.kind === 'demo' ? 'Demo' : 'Call back') + '</span>' +
               (e.kind === 'demo' && e.meet_link
                 ? '<a class="meet" href="' + esc(e.meet_link) + '" target="_blank" rel="noopener" ' +
-                  'title="Join the meeting">Google Meet</a>'
+                  'onclick="event.stopPropagation()" title="Join the meeting">Google Meet</a>'
                 : '') +
               '<button class="donebtn" data-complete="' + e.id + '" title="Mark this as done">Done</button></div>';
           }).join('') + '</div>'
@@ -416,11 +416,11 @@
     var demopanel = demos.length
       ? '<div class="panel"><div class="phead">Upcoming demos</div><div class="list flush">' +
           demos.map(function (e) {
-            return '<div class="srow"><span class="sw">' + when(e.starts_at) + '</span>' +
+            return '<div class="srow click" data-editevent="' + e.id + '"><span class="sw">' + when(e.starts_at) + '</span>' +
               '<span class="sn">' + esc(e.name) + '</span>' +
               (e.meet_link
                 ? '<a class="meet" href="' + esc(e.meet_link) + '" target="_blank" rel="noopener" ' +
-                  'title="Join the meeting">Google Meet</a>'
+                  'onclick="event.stopPropagation()" title="Join the meeting">Google Meet</a>'
                 : '<span class="nolink">no Meet link</span>') +
               '<button class="donebtn" data-complete="' + e.id + '" title="Mark this demo as done">Done</button>' +
             '</div>';
@@ -509,9 +509,13 @@
           '<button class="disp demo wide" data-dsched="demo">Schedule a demo</button>' +
         '</div>' +
         (evs.length
-          ? '<div class="lookahead"><div class="sect">Booked</div>' + evs.map(function (e) {
-              return '<div class="lrow"><span class="lw">' + when(e.starts_at) + '</span>' +
-                '<span class="ln">' + (e.kind === 'demo' ? 'Demo' : 'Call back') + '</span></div>';
+          ? '<div class="lookahead"><div class="sect">Booked <span class="hinttxt">— tap to edit</span></div>' +
+            evs.map(function (e) {
+              return '<div class="lrow click" data-editevent="' + e.id + '"><span class="lw">' + when(e.starts_at) + '</span>' +
+                '<span class="ln">' + (e.kind === 'demo' ? 'Demo' : 'Call back') + '</span>' +
+                (e.meet_link ? '<a class="meet" href="' + esc(e.meet_link) + '" target="_blank" rel="noopener" ' +
+                  'onclick="event.stopPropagation()" title="Join the meeting">Google Meet</a>' : '') +
+                '<span class="editcue">Edit ›</span></div>';
             }).join('') + '</div>'
           : '') +
         logPanel(l) +
@@ -648,7 +652,11 @@
     /* While the calendar is open it takes over the sheet: just the date, the
        time and Done. The invite, the note and Schedule only reappear once a
        time is set, so the picker is never competing with the rest of the form. */
-    var body = S.sheet.confirming
+    var isEdit = !!S.sheet.editId;
+    var noun = k === 'demo' ? 'demo' : 'callback';
+    var body = S.sheet.cancelling
+      ? cancelConfirm()
+      : S.sheet.confirming
       ? confirmInvite()
       : S.sheet.calOpen
       ? schedField()
@@ -661,17 +669,20 @@
           ? '<label>Invite them <span class="opt">— sends a Google Meet link</span></label>' +
             '<input type="email" id="sch-email" placeholder="their@email.com" value="' +
               esc(S.sheet.email || '') + '">' +
-            '<div class="hint">' + (S.sheet.lead.email
+            '<div class="hint">' + (S.sheet.email
               ? 'They will get a calendar invite with a Meet link.'
               : 'No email on this lead yet — add one to send an invite, or leave blank to just block the time.') +
             '</div>'
           : '') +
         '<label>Note</label><textarea id="sch-note" rows="2" placeholder="What to cover">' +
           esc(S.sheet.note || '') + '</textarea>' +
-        '<div class="acts"><button class="cancel" data-close="1">Cancel</button>' +
-        '<button class="go" data-save="1">Schedule</button></div>';
+        (isEdit ? '<button class="quietbad" data-askcancel="1">Cancel this ' + noun + '</button>' : '') +
+        '<div class="acts"><button class="cancel" data-close="1">' + (isEdit ? 'Close' : 'Cancel') + '</button>' +
+        '<button class="go" data-save="1">' + (isEdit ? 'Save changes' : 'Schedule') + '</button></div>';
     return '<div class="sheet-bg" data-close="1"><div class="sheet' + (S.sheet.calOpen ? ' picking' : '') + '">' +
-      '<h3>' + (S.sheet.confirming ? 'Send Google Meet invite?'
+      '<h3>' + (S.sheet.cancelling ? 'Cancel this ' + noun + '?'
+               : S.sheet.confirming ? (isEdit ? 'Update the Meet invite?' : 'Send Google Meet invite?')
+               : isEdit ? 'Edit ' + noun
                : k === 'demo' ? 'Schedule a demo' : 'Set a callback') + '</h3>' +
       '<div class="who">' + esc(S.sheet.lead.name) + '</div>' +
       body + '</div></div>';
@@ -747,12 +758,27 @@
   function confirmInvite() {
     var d = new Date(S.sheet.dt);
     var emails = (S.sheet.email || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    var msg = S.sheet.editId
+      ? 'The updated time will be sent as a Google Meet invite to:'
+      : 'A Google Meet link will be created and a calendar invite emailed to:';
     return '<div class="confirmbox">' +
-      '<p class="cmsg">A Google Meet link will be created and a calendar invite emailed to:</p>' +
+      '<p class="cmsg">' + msg + '</p>' +
       '<ul class="clist">' + emails.map(function (e) { return '<li>' + esc(e) + '</li>'; }).join('') + '</ul>' +
       '<p class="cwhen">' + esc(fmtRead(d)) + '</p></div>' +
       '<div class="acts"><button class="cancel" data-unconfirm="1">Back</button>' +
-      '<button class="go" data-sendinvite="1">Send invite</button></div>';
+      '<button class="go" data-sendinvite="1">' + (S.sheet.editId ? 'Send update' : 'Send invite') + '</button></div>';
+  }
+  /* Confirm before pulling a booked event off the calendar. */
+  function cancelConfirm() {
+    var k = S.sheet.kind, noun = k === 'demo' ? 'demo' : 'callback';
+    var tellsAttendee = k === 'demo' && S.sheet.email;
+    return '<div class="confirmbox">' +
+      '<p class="cmsg">This removes the ' + noun + ' from Google Calendar' +
+        (tellsAttendee ? ' and emails a cancellation to:' : '.') + '</p>' +
+      (tellsAttendee ? '<ul class="clist"><li>' + esc(S.sheet.email) + '</li></ul>' : '') +
+      '</div>' +
+      '<div class="acts"><button class="cancel" data-uncancel="1">Keep it</button>' +
+      '<button class="go danger" data-docancel="1">Cancel ' + noun + '</button></div>';
   }
 
   function render() {
@@ -877,6 +903,9 @@
     app.querySelectorAll('[data-openlead]').forEach(function (el) {
       el.onclick = function () { go({ view: 'detail', id: el.dataset.openlead }); };
     });
+    app.querySelectorAll('[data-editevent]').forEach(function (el) {
+      el.onclick = function (e) { e.stopPropagation(); openEditEvent(+el.dataset.editevent); };
+    });
     app.querySelectorAll('[data-complete]').forEach(function (el) {
       el.onclick = function (e) {
         e.stopPropagation();   // calendar rows open the lead on click; this must not
@@ -997,6 +1026,12 @@
     var sendInv = document.querySelector('[data-sendinvite]'); if (sendInv) sendInv.onclick = commitSchedule;
     var unconf = document.querySelector('[data-unconfirm]');
     if (unconf) unconf.onclick = function () { S.sheet.confirming = false; render(); };
+    var askc = document.querySelector('[data-askcancel]');
+    if (askc) askc.onclick = function () { S.sheet.cancelling = true; render(); };
+    var unc = document.querySelector('[data-uncancel]');
+    if (unc) unc.onclick = function () { S.sheet.cancelling = false; render(); };
+    var docx = document.querySelector('[data-docancel]');
+    if (docx) docx.onclick = doCancelEvent;
     var send = document.querySelector('[data-send]'); if (send) send.onclick = doEmail;
   }
 
@@ -1018,26 +1053,59 @@
     commitSchedule();
   }
   function commitSchedule() {
-    var l = S.sheet.lead, k = S.sheet.kind;
-    api('schedule', { id: l.id, kind: k, when: schedWhenStr(),
-                      notes: S.sheet.note || '',
-                      invite_email: k === 'demo' ? (S.sheet.email || '').trim() : '' })
-      .then(function (r) {
-        if (r.error) { S.sheet.confirming = false; render(); return toast(r.error); }
-        var bits = [];
-        if (r.calendar_synced) bits.push('calendar');
-        if (r.trello_carded)   bits.push('Trello');
-        if (r.invited)         bits.push('invite sent');
-        toast((k === 'demo' ? 'Demo booked' : 'Callback set') + (bits.length ? ' → ' + bits.join(' + ') : ''));
-        if (r.meet_link) toast('Meet link created');
-        if (r.calendar_error) toast('Calendar: ' + r.calendar_error);
-        var fromDetail = S.sheet && S.sheet.from === 'detail';
-        S.sheet = null;
-        if (fromDetail) {
-          return api('lead', null, { id: l.id }).then(function (x) { S.detail = x; render(); });
-        }
-        S.i++; savePos(); return boot().then(render);
-      });
+    var l = S.sheet.lead, k = S.sheet.kind, edit = S.sheet.editId;
+    var email = k === 'demo' ? (S.sheet.email || '').trim() : '';
+    var payload = edit
+      ? { event_id: edit, when: schedWhenStr(), notes: S.sheet.note || '', invite_email: email }
+      : { id: l.id, kind: k, when: schedWhenStr(), notes: S.sheet.note || '', invite_email: email };
+    api(edit ? 'update_event' : 'schedule', payload).then(function (r) {
+      if (r.error) { S.sheet.confirming = false; render(); return toast(r.error); }
+      var bits = [];
+      if (r.calendar_synced) bits.push('calendar');
+      if (r.trello_carded)   bits.push('Trello');
+      if (r.invited)         bits.push(edit ? 'invite updated' : 'invite sent');
+      var verb = edit ? (k === 'demo' ? 'Demo updated' : 'Callback updated')
+                      : (k === 'demo' ? 'Demo booked' : 'Callback set');
+      toast(verb + (bits.length ? ' → ' + bits.join(' + ') : ''));
+      if (r.calendar_error) toast('Calendar: ' + r.calendar_error);
+      var from = S.sheet.from, wasEdit = !!edit;
+      S.sheet = null;
+      return refreshAfterEvent(from, wasEdit, l.id);
+    });
+  }
+  function doCancelEvent() {
+    var from = S.sheet.from, leadId = S.sheet.lead.id;
+    api('cancel_event', { event_id: S.sheet.editId }).then(function (r) {
+      if (r.error) { S.sheet.cancelling = false; render(); return toast(r.error); }
+      toast('Cancelled');
+      S.sheet = null;
+      return refreshAfterEvent(from, true, leadId);
+    });
+  }
+  /* After booking/editing/cancelling, reload whichever view you came from. */
+  function refreshAfterEvent(from, wasEdit, leadId) {
+    if (from === 'detail') return api('lead', null, { id: leadId }).then(function (x) { S.detail = x; render(); });
+    if (from === 'cal')    return boot().then(function () { return api('calendar').then(function (x) { S.cal = x.events; render(); }); });
+    if (from === 'dash')   return boot().then(function () { return api('stats').then(function (x) { S.stats = x; render(); }); });
+    if (!wasEdit) { S.i++; savePos(); }   // a fresh booking from the call queue
+    return boot().then(render);
+  }
+  /* Open the edit sheet for a booked event, from any view. */
+  function openEditEvent(id) {
+    api('event', null, { id: id }).then(function (ev) {
+      if (ev.error) return toast(ev.error);
+      var d = new Date(ev.starts_at * 1000);
+      S.sheet = {
+        editId: ev.id, kind: ev.kind,
+        lead: { id: ev.lead_id, name: ev.name, email: ev.email || '' },
+        from: S.view === 'detail' ? 'detail' : S.view === 'cal' ? 'cal' : 'dash',
+        dt: snap5(d.getTime()),
+        calMonth: new Date(d.getFullYear(), d.getMonth(), 1).getTime(),
+        calOpen: false, confirming: false, cancelling: false,
+        email: ev.invite_email || ev.email || '', note: ev.notes || '', meet_link: ev.meet_link || ''
+      };
+      render();
+    });
   }
   function doEmail() {
     var l = S.sheet.lead;

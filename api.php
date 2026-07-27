@@ -350,6 +350,89 @@ case 'complete_event': {
     json_out(['ok' => true, 'lead_id' => $row['lead_id']]);
 }
 
+/* One event's full record, joined to its lead — what the edit sheet loads. */
+case 'event': {
+    $eid = (int)($in['id'] ?? 0);
+    $s = $pdo->prepare("SELECT e.*, l.name, l.email, l.phone, l.city
+                        FROM events e JOIN leads l ON l.id = e.lead_id WHERE e.id = ?");
+    $s->execute([$eid]);
+    $row = $s->fetch();
+    if (!$row) json_out(['error' => 'not found'], 404);
+    json_out($row);
+}
+
+/* Edit a booked event in place. Because the row keeps its id, ics_uid and the
+   remote ids, the calendar entry and Trello card MOVE instead of duplicating,
+   and a demo keeps its Meet link — the attendee just gets an updated invite. */
+case 'update_event': {
+    $eid   = (int)($in['event_id'] ?? 0);
+    $when  = (string)($in['when'] ?? '');
+    $notes = trim((string)($in['notes'] ?? ''));
+    $inviteEmail = trim((string)($in['invite_email'] ?? ''));
+    if ($inviteEmail !== '' && !filter_var($inviteEmail, FILTER_VALIDATE_EMAIL)) {
+        json_out(['error' => 'that email address is not valid'], 400);
+    }
+    $s = $pdo->prepare("SELECT * FROM events WHERE id = ?");
+    $s->execute([$eid]);
+    $ev = $s->fetch();
+    if (!$ev) json_out(['error' => 'not found'], 404);
+    if ($ev['status'] !== 'scheduled') json_out(['error' => 'this event is no longer scheduled'], 400);
+
+    $dt = DateTime::createFromFormat('Y-m-d H:i', $when, new DateTimeZone(cfg('timezone')));
+    if (!$dt) json_out(['error' => 'bad datetime, expected Y-m-d H:i'], 400);
+    $ts = $dt->getTimestamp();
+
+    $pdo->prepare("UPDATE events SET starts_at=?, notes=?, invite_email=?, updated_at=? WHERE id=?")
+        ->execute([$ts, $notes, $inviteEmail !== '' ? $inviteEmail : null, $now, $eid]);
+
+    $lead = lead_row($pdo, $ev['lead_id']);
+    if ($inviteEmail !== '' && $lead && $inviteEmail !== $lead['email']) {
+        $pdo->prepare("UPDATE leads SET email=? WHERE id=?")->execute([$inviteEmail, $ev['lead_id']]);
+    }
+    log_act($pdo, $ev['lead_id'], 'schedule',
+            ucfirst($ev['kind']) . ' moved to ' . $dt->format('D j M, g:ia') . ($notes ? ' — ' . $notes : ''));
+    touch_lead($pdo, $ev['lead_id']);
+
+    // Re-push to Google and Trello — both PATCH/PUT the existing entries.
+    $row = $pdo->prepare("SELECT e.*, l.name, l.phone, l.city FROM events e
+                          JOIN leads l ON l.id = e.lead_id WHERE e.id = ?");
+    $row->execute([$eid]);
+    $full = $row->fetch();
+
+    $synced = false; $syncErr = null; $meet = $full['meet_link'] ?? null;
+    if (g_connected()) {
+        [$synced, $info, $m] = array_pad(g_sync_event($full, $full), 3, null);
+        if ($synced) { $meet = $m ?? $meet; } else { $syncErr = $info; }
+    }
+    $carded = false;
+    if (cfg('trello_key') && cfg('trello_token')) { [$carded] = t_sync_event($full); }
+
+    json_out(['ok' => true, 'starts_at' => $ts,
+              'calendar_synced' => $synced, 'calendar_error' => $syncErr,
+              'trello_carded' => $carded, 'invited' => $inviteEmail !== '',
+              'meet_link' => $meet]);
+}
+
+/* Cancel a booked event: pull it off Google (attendees get a cancellation) and
+   archive its Trello card. The row stays as a 'cancelled' record. */
+case 'cancel_event': {
+    $eid = (int)($in['event_id'] ?? 0);
+    $s = $pdo->prepare("SELECT * FROM events WHERE id = ?");
+    $s->execute([$eid]);
+    $ev = $s->fetch();
+    if (!$ev) json_out(['error' => 'not found'], 404);
+    if ($ev['status'] !== 'scheduled') json_out(['ok' => true, 'lead_id' => $ev['lead_id']]);
+
+    if (g_connected() && !empty($ev['gcal_event_id']))       g_delete_event($ev['gcal_event_id']);
+    if (cfg('trello_key') && cfg('trello_token') && !empty($ev['trello_card_id']))
+        t_cancel_event($ev['trello_card_id']);
+
+    $pdo->prepare("UPDATE events SET status='cancelled', updated_at=? WHERE id=?")->execute([$now, $eid]);
+    log_act($pdo, $ev['lead_id'], 'cancel', ucfirst($ev['kind']) . ' cancelled');
+    touch_lead($pdo, $ev['lead_id']);
+    json_out(['ok' => true, 'lead_id' => $ev['lead_id']]);
+}
+
 /* Send one email to a lead. Logged as an activity so the history shows it. */
 case 'email': {
     $id      = (string)($in['id'] ?? '');
