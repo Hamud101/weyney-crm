@@ -336,8 +336,18 @@ case 'note': {
 
 case 'complete_event': {
     $eid = (int)($in['event_id'] ?? 0);
-    $pdo->prepare("UPDATE events SET status='done', updated_at=? WHERE id=?")->execute([$now, $eid]);
-    json_out(['ok' => true]);
+    $ev = $pdo->prepare("SELECT lead_id, kind, status FROM events WHERE id=?");
+    $ev->execute([$eid]);
+    $row = $ev->fetch();
+    if (!$row) json_out(['error' => 'not found'], 404);
+    // Idempotent: a double-click shouldn't log the same thing twice.
+    if ($row['status'] !== 'done') {
+        $pdo->prepare("UPDATE events SET status='done', updated_at=? WHERE id=?")->execute([$now, $eid]);
+        log_act($pdo, $row['lead_id'], 'done',
+                ($row['kind'] === 'demo' ? 'Demo' : 'Callback') . ' completed');
+        touch_lead($pdo, $row['lead_id']);
+    }
+    json_out(['ok' => true, 'lead_id' => $row['lead_id']]);
 }
 
 /* Send one email to a lead. Logged as an activity so the history shows it. */

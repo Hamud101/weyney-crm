@@ -216,7 +216,7 @@
           '<button class="disp info wide" data-sched="callback">Schedule Follow-up</button>' +
           '<button class="disp" data-out="no_pickup">No pick-up</button>' +
           '<button class="disp bad" data-out="not_interested">Not interested</button>' +
-          '<button class="disp demo wide" data-sched="demo">Book a demo</button>' +
+          '<button class="disp demo wide" data-sched="demo">Schedule a demo</button>' +
         '</div>' +
         (function () {
           var nxt = S.queue.slice(S.i + 1, S.i + 6);
@@ -400,7 +400,8 @@
             var over = e.starts_at < Math.floor(Date.now() / 1000);
             return '<div class="srow"><span class="sw' + (over ? ' over' : '') + '">' +
               when(e.starts_at) + '</span><span class="sn">' + esc(e.name) + '</span>' +
-              '<span class="tag">' + (e.kind === 'demo' ? 'Demo' : 'Call back') + '</span></div>';
+              '<span class="tag">' + (e.kind === 'demo' ? 'Demo' : 'Call back') + '</span>' +
+              '<button class="donebtn" data-complete="' + e.id + '" title="Mark this as done">Done</button></div>';
           }).join('') + '</div>'
         : '<div class="bars"><div class="barsempty">Nothing due today. Everything scheduled ' +
           'lives in Calendar and on your Google Calendar.</div></div>') + '</div>';
@@ -444,6 +445,9 @@
             (e.meet_link ? '<a class="meet" href="' + esc(e.meet_link) + '" target="_blank" rel="noopener" ' +
               'onclick="event.stopPropagation()" title="Join the meeting">Google Meet</a>' : '') +
             (e.gcal_event_id ? '<span class="synced" title="On your Google Calendar">✓</span>' : '') +
+            (e.status === 'scheduled'
+              ? '<button class="donebtn" data-complete="' + e.id + '" title="Mark this call as done">Done</button>'
+              : '<span class="donetag">✓ done</span>') +
             '</div>';
         }).join('') + '</div>';
     }).join('');
@@ -480,7 +484,7 @@
         '<div class="sect" style="margin-top:20px">Schedule</div>' +
         '<div class="dgrid">' +
           '<button class="disp info wide" data-dsched="callback">Schedule Follow-up</button>' +
-          '<button class="disp demo wide" data-dsched="demo">Book a demo</button>' +
+          '<button class="disp demo wide" data-dsched="demo">Schedule a demo</button>' +
         '</div>' +
         (evs.length
           ? '<div class="lookahead"><div class="sect">Booked</div>' + evs.map(function (e) {
@@ -620,15 +624,13 @@
         '<button class="go" data-send="1">Send</button></div></div></div>';
     }
     return '<div class="sheet-bg" data-close="1"><div class="sheet">' +
-      '<h3>' + (k === 'demo' ? 'Book a call' : 'Set a callback') + '</h3>' +
+      '<h3>' + (k === 'demo' ? 'Schedule a demo' : 'Set a callback') + '</h3>' +
       '<div class="who">' + esc(S.sheet.lead.name) + '</div>' +
       '<div class="quick">' +
         '<button data-quick="3h">In 3 hours</button><button data-quick="tom9">Tomorrow 9am</button>' +
         '<button data-quick="tom2">Tomorrow 2pm</button><button data-quick="week">Next week</button>' +
       '</div>' +
-      '<label>Date &amp; time</label><input type="datetime-local" id="sch-when" value="' + S.sheet.when + '">' +
-      '<div class="whenbar"><span class="whenread" id="sch-read"></span>' +
-      '<button type="button" class="whendone" id="sch-done">Done</button></div>' +
+      schedField() +
       (k === 'demo'
         ? '<label>Invite them <span class="opt">— sends a Google Meet link</span></label>' +
           '<input type="email" id="sch-email" placeholder="their@email.com" value="' +
@@ -642,9 +644,71 @@
       '<div class="acts"><button class="cancel" data-close="1">Cancel</button>' +
       '<button class="go" data-save="1">Schedule</button></div></div></div>';
   }
-  function localValue(d) {
-    var p = function (n) { return String(n).padStart(2, '0'); };
-    return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+  /* Server wants 'YYYY-MM-DD HH:MM' in local time. */
+  function schedWhenStr() {
+    var d = new Date(S.sheet.dt), p = function (n) { return String(n).padStart(2, '0'); };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+           ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+  function snap5(ms) {
+    var d = new Date(ms); d.setSeconds(0, 0);
+    d.setMinutes(Math.round(d.getMinutes() / 5) * 5);
+    return d.getTime();
+  }
+  /* A schedule sheet carries its own picker state: the chosen instant, which
+     month the calendar shows, and whether that calendar is open. */
+  function schedSheet(lead, kind, from) {
+    var d = new Date(Date.now() + 864e5); d.setHours(9, 0, 0, 0);
+    return { lead: lead, kind: kind, from: from, dt: snap5(d.getTime()),
+             calMonth: new Date(d.getFullYear(), d.getMonth(), 1).getTime(), calOpen: false };
+  }
+  function fmtRead(d) {
+    return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ' · ' +
+           d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+  var WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  /* A picker we draw ourselves. The native datetime popup floats over the sheet
+     and has no confirm button inside it, so a Done placed under the field ended
+     up stranded behind the popup — this keeps the calendar, the clock and Done
+     together in one panel you can actually reach. */
+  function schedField() {
+    var d = new Date(S.sheet.dt);
+    return '<label>Date &amp; time</label>' +
+      '<button type="button" class="pickfield' + (S.sheet.calOpen ? ' open' : '') + '" data-picktoggle="1">' +
+        ICON.cal + '<span>' + esc(fmtRead(d)) + '</span>' +
+        '<em>' + (S.sheet.calOpen ? 'Close' : 'Change') + '</em></button>' +
+      (S.sheet.calOpen ? datepicker(d) : '');
+  }
+  function datepicker(sel) {
+    var view = new Date(S.sheet.calMonth), y = view.getFullYear(), m = view.getMonth();
+    var startDow = new Date(y, m, 1).getDay(), daysIn = new Date(y, m + 1, 0).getDate();
+    var today = new Date(); today.setHours(0, 0, 0, 0);
+    var grid = WEEKDAYS.map(function (w) { return '<span class="pdh">' + w + '</span>'; }).join('');
+    for (var i = 0; i < startDow; i++) grid += '<span class="pd empty"></span>';
+    for (var day = 1; day <= daysIn; day++) {
+      var cur = new Date(y, m, day);
+      grid += '<button type="button" class="pd' +
+        (cur.toDateString() === sel.toDateString() ? ' sel' : '') +
+        (cur.toDateString() === today.toDateString() ? ' today' : '') +
+        (cur < today ? ' past' : '') + '" data-day="' + day + '">' + day + '</button>';
+    }
+    var h12 = sel.getHours() % 12 || 12, ap = sel.getHours() < 12 ? 'AM' : 'PM';
+    var hrs = '', mins = '';
+    for (var h = 1; h <= 12; h++) hrs += '<option' + (h === h12 ? ' selected' : '') + '>' + h + '</option>';
+    for (var mn = 0; mn < 60; mn += 5) {
+      mins += '<option value="' + mn + '"' + (mn === sel.getMinutes() ? ' selected' : '') + '>' +
+              String(mn).padStart(2, '0') + '</option>';
+    }
+    return '<div class="picker">' +
+      '<div class="pnav"><button type="button" class="pmo" data-mo="-1">‹</button>' +
+        '<b>' + view.toLocaleDateString([], { month: 'long', year: 'numeric' }) + '</b>' +
+        '<button type="button" class="pmo" data-mo="1">›</button></div>' +
+      '<div class="pgrid">' + grid + '</div>' +
+      '<div class="ptime"><span class="ptl">Time</span>' +
+        '<select id="pk-h">' + hrs + '</select><i>:</i><select id="pk-m">' + mins + '</select>' +
+        '<div class="pap"><button type="button" class="' + (ap === 'AM' ? 'on' : '') + '" data-ap="AM">AM</button>' +
+          '<button type="button" class="' + (ap === 'PM' ? 'on' : '') + '" data-ap="PM">PM</button></div></div>' +
+      '<button type="button" class="pdone" data-pickdone="1">Done</button></div>';
   }
 
   function render() {
@@ -677,8 +741,7 @@
     });
     app.querySelectorAll('[data-sched]').forEach(function (el) {
       el.onclick = function () {
-        var d = new Date(Date.now() + 864e5); d.setHours(9, 0, 0, 0);
-        S.sheet = { lead: S.queue[S.i], kind: el.dataset.sched, when: localValue(d) };
+        S.sheet = schedSheet(S.queue[S.i], el.dataset.sched);
         render();
       };
     });
@@ -695,33 +758,45 @@
         if (k === 'tom9') { d = new Date(Date.now() + 864e5); d.setHours(9, 0, 0, 0); }
         if (k === 'tom2') { d = new Date(Date.now() + 864e5); d.setHours(14, 0, 0, 0); }
         if (k === 'week') { d = new Date(Date.now() + 7 * 864e5); d.setHours(9, 0, 0, 0); }
-        var f = document.getElementById('sch-when');
-        f.value = localValue(d);
-        f.dispatchEvent(new Event('input'));   // keep the "Saves as …" line in step
+        S.sheet.dt = snap5(d.getTime());
+        S.sheet.calMonth = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+        render();
       };
     });
-    var when = document.getElementById('sch-when');
-    if (when) {
-      // The browser's own picker has no OK button and covers Schedule, so it is
-      // never obvious that a pick has registered. Echo the value back in words,
-      // and give Done to dismiss the picker. Blurring on change is not an option
-      // here — that would close it after the date, before the time is chosen.
-      var read = document.getElementById('sch-read');
-      var show = function () {
-        if (!read) return;
-        var d = when.value ? new Date(when.value) : null;
-        if (!d || isNaN(d)) { read.textContent = 'No date picked yet'; read.className = 'whenread none'; return; }
-        read.className = 'whenread';
-        read.textContent = 'Saves as ' +
-          d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ' at ' +
-          d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    // Custom date/time picker — open/close, pick a day, page months, set time.
+    var ptog = document.querySelector('[data-picktoggle]');
+    if (ptog) ptog.onclick = function () { S.sheet.calOpen = !S.sheet.calOpen; render(); };
+    app.querySelectorAll('[data-day]').forEach(function (el) {
+      el.onclick = function () {
+        var d = new Date(S.sheet.dt), v = new Date(S.sheet.calMonth);
+        d.setFullYear(v.getFullYear(), v.getMonth(), +el.dataset.day);
+        S.sheet.dt = d.getTime(); render();
       };
-      when.oninput = show;
-      when.onchange = show;
-      show();
-      var done = document.getElementById('sch-done');
-      if (done) done.onclick = function () { when.blur(); show(); };
+    });
+    app.querySelectorAll('[data-mo]').forEach(function (el) {
+      el.onclick = function () {
+        var v = new Date(S.sheet.calMonth); v.setMonth(v.getMonth() + (+el.dataset.mo));
+        S.sheet.calMonth = v.getTime(); render();
+      };
+    });
+    app.querySelectorAll('[data-ap]').forEach(function (el) {
+      el.onclick = function () {
+        var d = new Date(S.sheet.dt), h = d.getHours();
+        if (el.dataset.ap === 'AM' && h >= 12) d.setHours(h - 12);
+        if (el.dataset.ap === 'PM' && h < 12)  d.setHours(h + 12);
+        S.sheet.dt = d.getTime(); render();
+      };
+    });
+    var pkh = document.getElementById('pk-h'), pkm = document.getElementById('pk-m');
+    function pkTime() {
+      var d = new Date(S.sheet.dt), ap = d.getHours() < 12 ? 'AM' : 'PM';
+      d.setHours((+pkh.value % 12) + (ap === 'PM' ? 12 : 0), +pkm.value);
+      S.sheet.dt = d.getTime(); render();
     }
+    if (pkh) pkh.onchange = pkTime;
+    if (pkm) pkm.onchange = pkTime;
+    var pdone = document.querySelector('[data-pickdone]');
+    if (pdone) pdone.onclick = function () { S.sheet.calOpen = false; render(); };
     var nb = document.getElementById('nb');
     if (nb) nb.oninput = function () {
       var em = document.getElementById('nb-email');
@@ -753,13 +828,25 @@
     app.querySelectorAll('[data-openlead]').forEach(function (el) {
       el.onclick = function () { go({ view: 'detail', id: el.dataset.openlead }); };
     });
+    app.querySelectorAll('[data-complete]').forEach(function (el) {
+      el.onclick = function (e) {
+        e.stopPropagation();   // calendar rows open the lead on click; this must not
+        api('complete_event', { event_id: +el.dataset.complete }).then(function (r) {
+          if (r.error) return toast(r.error);
+          toast('Marked done');
+          return boot().then(function () {
+            if (S.view === 'cal') return api('calendar').then(function (x) { S.cal = x.events; render(); });
+            return api('stats').then(function (x) { S.stats = x; render(); });
+          });
+        });
+      };
+    });
     app.querySelectorAll('[data-back]').forEach(function (el) {
       el.onclick = function () { go({ view: 'clients' }); };
     });
     app.querySelectorAll('[data-dsched]').forEach(function (el) {
       el.onclick = function () {
-        var d = new Date(Date.now() + 864e5); d.setHours(9, 0, 0, 0);
-        S.sheet = { lead: S.detail, kind: el.dataset.dsched, when: localValue(d), from: 'detail' };
+        S.sheet = schedSheet(S.detail, el.dataset.dsched, 'detail');
         render();
       };
     });
@@ -871,10 +958,9 @@
   }
   function doSchedule() {
     var l = S.sheet.lead, k = S.sheet.kind;
-    var v = document.getElementById('sch-when').value;
-    if (!v) return toast('Pick a time');
+    if (!S.sheet.dt) return toast('Pick a time');
     var em = document.getElementById('sch-email');
-    api('schedule', { id: l.id, kind: k, when: v.replace('T', ' '),
+    api('schedule', { id: l.id, kind: k, when: schedWhenStr(),
                       notes: document.getElementById('sch-note').value || '',
                       invite_email: em ? (em.value || '').trim() : '' })
       .then(function (r) {
