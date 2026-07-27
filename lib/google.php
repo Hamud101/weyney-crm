@@ -127,7 +127,7 @@ function g_api(string $method, string $path, ?array $payload = null, array $quer
  * conferenceDataVersion=1 on the request, and sendUpdates=all so Google emails
  * them — without it the attendee is added silently and nobody is told.
  */
-function g_sync_event(array $ev, array $lead): array {
+function g_sync_event(array $ev, array $lead, bool $notify = true): array {
     $tz = cfg('timezone', 'America/Chicago');
     $start = (new DateTime('@' . $ev['starts_at']))->setTimezone(new DateTimeZone($tz));
     $end   = (clone $start)->modify('+' . max(15, (int)$ev['duration_min']) . ' minutes');
@@ -161,7 +161,9 @@ function g_sync_event(array $ev, array $lead): array {
             'conferenceSolutionKey' => ['type' => 'hangoutsMeet'],
         ]];
         $query['conferenceDataVersion'] = 1;
-        $query['sendUpdates'] = 'all';
+        // 'all' emails the attendee; 'none' moves the event on their calendar
+        // silently — for saving an edit without pinging everyone.
+        $query['sendUpdates'] = $notify ? 'all' : 'none';
     }
 
     $calId = rawurlencode(cfg('google_calendar_id', 'primary'));

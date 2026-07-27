@@ -758,15 +758,22 @@
   function confirmInvite() {
     var d = new Date(S.sheet.dt);
     var emails = (S.sheet.email || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
-    var msg = S.sheet.editId
-      ? 'The updated time will be sent as a Google Meet invite to:'
+    var isEdit = !!S.sheet.editId;
+    var msg = isEdit
+      ? 'You changed a demo with a guest invited. Email them the updated time?'
       : 'A Google Meet link will be created and a calendar invite emailed to:';
+    // On an edit you can save the change without pinging anyone — same choice
+    // Google Calendar offers (Send / Don't send).
+    var acts = isEdit
+      ? '<div class="acts three"><button class="cancel" data-unconfirm="1">Back</button>' +
+        '<button class="cancel" data-savequiet="1">Don\'t send</button>' +
+        '<button class="go" data-sendinvite="1">Send</button></div>'
+      : '<div class="acts"><button class="cancel" data-unconfirm="1">Back</button>' +
+        '<button class="go" data-sendinvite="1">Send invite</button></div>';
     return '<div class="confirmbox">' +
       '<p class="cmsg">' + msg + '</p>' +
       '<ul class="clist">' + emails.map(function (e) { return '<li>' + esc(e) + '</li>'; }).join('') + '</ul>' +
-      '<p class="cwhen">' + esc(fmtRead(d)) + '</p></div>' +
-      '<div class="acts"><button class="cancel" data-unconfirm="1">Back</button>' +
-      '<button class="go" data-sendinvite="1">' + (S.sheet.editId ? 'Send update' : 'Send invite') + '</button></div>';
+      '<p class="cwhen">' + esc(fmtRead(d)) + '</p></div>' + acts;
   }
   /* Confirm before pulling a booked event off the calendar. */
   function cancelConfirm() {
@@ -1023,7 +1030,10 @@
       });
     };
     var save = document.querySelector('[data-save]'); if (save) save.onclick = doSchedule;
-    var sendInv = document.querySelector('[data-sendinvite]'); if (sendInv) sendInv.onclick = commitSchedule;
+    var sendInv = document.querySelector('[data-sendinvite]');
+    if (sendInv) sendInv.onclick = function () { commitSchedule(true); };
+    var saveq = document.querySelector('[data-savequiet]');
+    if (saveq) saveq.onclick = function () { commitSchedule(false); };
     var unconf = document.querySelector('[data-unconfirm]');
     if (unconf) unconf.onclick = function () { S.sheet.confirming = false; render(); };
     var askc = document.querySelector('[data-askcancel]');
@@ -1052,11 +1062,12 @@
     }
     commitSchedule();
   }
-  function commitSchedule() {
+  function commitSchedule(notify) {
     var l = S.sheet.lead, k = S.sheet.kind, edit = S.sheet.editId;
     var email = k === 'demo' ? (S.sheet.email || '').trim() : '';
     var payload = edit
-      ? { event_id: edit, when: schedWhenStr(), notes: S.sheet.note || '', invite_email: email }
+      ? { event_id: edit, when: schedWhenStr(), notes: S.sheet.note || '',
+          invite_email: email, notify: notify !== false }
       : { id: l.id, kind: k, when: schedWhenStr(), notes: S.sheet.note || '', invite_email: email };
     api(edit ? 'update_event' : 'schedule', payload).then(function (r) {
       if (r.error) { S.sheet.confirming = false; render(); return toast(r.error); }
@@ -1064,6 +1075,7 @@
       if (r.calendar_synced) bits.push('calendar');
       if (r.trello_carded)   bits.push('Trello');
       if (r.invited)         bits.push(edit ? 'invite updated' : 'invite sent');
+      else if (edit && email && notify === false) bits.push('no email sent');
       var verb = edit ? (k === 'demo' ? 'Demo updated' : 'Callback updated')
                       : (k === 'demo' ? 'Demo booked' : 'Callback set');
       toast(verb + (bits.length ? ' → ' + bits.join(' + ') : ''));

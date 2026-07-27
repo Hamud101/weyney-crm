@@ -516,6 +516,7 @@ body.gate{display:grid;place-items:center;overflow:auto}
 .cwhen{margin:0;font-size:12.5px;font-weight:700;color:var(--ink)}
 .acts .go.danger{background:var(--bad)}
 .acts .go.danger:hover{background:#8a1b1b}
+.acts.three button{padding:11px 6px;font-size:12.5px;white-space:nowrap}
 
 /* booked events are clickable to edit — on the dashboard and in a lead record */
 .srow.click{cursor:pointer}

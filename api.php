@@ -369,6 +369,8 @@ case 'update_event': {
     $when  = (string)($in['when'] ?? '');
     $notes = trim((string)($in['notes'] ?? ''));
     $inviteEmail = trim((string)($in['invite_email'] ?? ''));
+    // Default to notifying, so an unaware caller never sends silently by accident.
+    $notify = array_key_exists('notify', $in) ? (bool)$in['notify'] : true;
     if ($inviteEmail !== '' && !filter_var($inviteEmail, FILTER_VALIDATE_EMAIL)) {
         json_out(['error' => 'that email address is not valid'], 400);
     }
@@ -401,7 +403,7 @@ case 'update_event': {
 
     $synced = false; $syncErr = null; $meet = $full['meet_link'] ?? null;
     if (g_connected()) {
-        [$synced, $info, $m] = array_pad(g_sync_event($full, $full), 3, null);
+        [$synced, $info, $m] = array_pad(g_sync_event($full, $full, $notify), 3, null);
         if ($synced) { $meet = $m ?? $meet; } else { $syncErr = $info; }
     }
     $carded = false;
@@ -409,7 +411,7 @@ case 'update_event': {
 
     json_out(['ok' => true, 'starts_at' => $ts,
               'calendar_synced' => $synced, 'calendar_error' => $syncErr,
-              'trello_carded' => $carded, 'invited' => $inviteEmail !== '',
+              'trello_carded' => $carded, 'invited' => $inviteEmail !== '' && $notify,
               'meet_link' => $meet]);
 }
 
