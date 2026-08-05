@@ -15,8 +15,9 @@ cd "$(dirname "$0")"
 REMOTE=hostinger
 DEST='domains/weyney.com/public_html/apps/crm'
 
-# Repo-only files that must never land in the web root.
-EXCLUDE='^(deploy\.sh|\.gitignore|README\.md)$'
+# Repo-only files that must never land in the web root. The attachment PDFs do
+# ship — the mailer reads them off disk — but their print sources do not.
+EXCLUDE='^(deploy\.sh|\.gitignore|README\.md|attachments/src/.*)$'
 
 DRY=""
 FORCE=""

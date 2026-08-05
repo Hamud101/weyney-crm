@@ -216,6 +216,22 @@ body.gate{display:grid;place-items:center;overflow:auto}
 .sheet .acts .go{background:var(--accent);color:var(--accent-ink)}
 .sheet .acts .cancel{background:var(--s2);border:1px solid var(--line);color:var(--soft)}
 
+/* Email templates. Wider sheet than the rest: a message is written here, not
+   just picked. Each option carries its own line of explanation because the
+   difference between two templates is what they say, not what they are called. */
+.sheet.email{width:min(560px,100%)}
+.tpls{display:grid;gap:6px}
+.tpl{display:block;width:100%;text-align:left;padding:9px 12px;border-radius:9px;
+  background:var(--s2);border:1px solid var(--line);font-size:13px;font-weight:700}
+.tpl span{display:block;font-weight:500;font-size:11.5px;color:var(--soft);margin-top:1px}
+.tpl:hover{background:var(--s3)}
+.tpl.on{background:var(--accent-wash);border-color:var(--ink)}
+.attach{margin-top:9px;padding:9px 12px;border-radius:9px;background:var(--s2);
+  border:1px solid var(--line);font-size:12px;color:var(--soft)}
+.attach b{color:var(--ink);font-weight:650}
+.attach.missing{background:var(--bad-wash);border-color:var(--bad);color:var(--bad)}
+.attach.missing b{color:var(--bad)}
+
 /* ---------- toast ---------- */
 .toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,70px);
   background:var(--ink);color:#fff;border-radius:9px;padding:10px 17px;font-size:13px;

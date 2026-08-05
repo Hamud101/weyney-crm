@@ -1,0 +1,121 @@
+/* Print stylesheet for the email attachment PDFs.
+   Same system as the client-facing proposals and price breakdowns — Instrument
+   Serif for display, Archivo for body, --accent:#1f5f52. Anything a client
+   receives should look like it came from the same place, so tokens and the
+   letterhead are copied verbatim from clients/caring-hands/proposal.src.html.
+   Fonts live in fonts.css; build.py inlines both. */
+
+@page { size: letter; margin: 0.7in 0.85in; }
+
+:root{
+  --ink:#101112; --grey-dark:#35373a; --grey-mid:#6e7176;
+  --hairline:#d3d6d5; --wash:#f4f6f5; --accent:#1f5f52; --accent-wash:#eef4f2;
+  --serif:'Instrument Serif',Georgia,serif;
+  --sans:'Archivo',-apple-system,'Helvetica Neue',Arial,sans-serif;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;background:#fff;}
+body{color:var(--ink);font-family:var(--sans);font-size:10.2pt;line-height:1.55;
+  -webkit-font-smoothing:antialiased;}
+h1,h2,h3{margin:0;text-wrap:balance;}
+p{margin:0;}
+ul{margin:.45em 0 0;padding-left:1.05em;}
+li{margin:0 0 .16em;padding-left:.1em;}
+li::marker{color:var(--accent);}
+strong{font-weight:650;}
+a{color:var(--accent);text-decoration:none;}
+
+/* ---------- Letterhead ---------- */
+.head{display:flex;justify-content:space-between;align-items:flex-start;
+  gap:1.5rem;padding-bottom:.7rem;border-bottom:1.5px solid var(--ink);}
+.mark{font-family:var(--serif);font-size:19pt;line-height:1;}
+.mark i{font-style:italic;color:var(--accent);}
+.who{font-family:var(--sans);font-size:7.4pt;font-weight:650;letter-spacing:.17em;
+  text-transform:uppercase;color:var(--grey-mid);margin-top:.5em;}
+.contact{text-align:right;font-size:8.3pt;color:var(--grey-mid);line-height:1.65;}
+
+.title{margin-top:1.25rem;}
+.title h1{font-family:var(--serif);font-weight:400;font-size:25pt;line-height:1.06;
+  letter-spacing:-.01em;margin-bottom:.35rem;}
+.title .meta{font-size:8.3pt;font-weight:600;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--accent);margin-bottom:.5em;}
+.intro{margin-top:.9rem;color:var(--grey-dark);max-width:44em;}
+
+/* ---------- Sections ---------- */
+section{margin-top:1.15rem;}
+.bar{break-after:avoid;display:flex;align-items:baseline;justify-content:space-between;gap:1rem;
+  border-bottom:1px solid var(--hairline);padding-bottom:.35em;}
+.bar h2{font-family:var(--serif);font-weight:400;font-size:15.5pt;line-height:1.15;}
+.bar .amt{font-family:var(--serif);font-size:16pt;white-space:nowrap;
+  font-variant-numeric:tabular-nums;color:var(--accent);}
+.bar .amt small{font-family:var(--sans);font-size:7.4pt;font-weight:650;
+  letter-spacing:.13em;text-transform:uppercase;color:var(--grey-mid);
+  margin-left:.4em;}
+.note{margin-top:.6em;color:var(--grey-dark);}
+.lede{margin-top:.6em;font-family:var(--serif);font-size:13pt;line-height:1.35;
+  color:var(--ink);max-width:40em;}
+
+/* ---------- Option / package cards ---------- */
+.opts{display:flex;gap:.7rem;margin-top:.8rem;break-inside:avoid;}
+.opt{flex:1;border:1px solid var(--hairline);padding:.75rem .85rem;}
+.opt.pick{border-color:var(--accent);background:var(--accent-wash);}
+.opt .amt{font-family:var(--serif);font-size:14pt;color:var(--accent);
+  font-variant-numeric:tabular-nums;}
+.opt .amt small{font-family:var(--sans);font-size:7.2pt;font-weight:650;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--grey-mid);margin-left:.35em;}
+.opt h3{font-family:var(--sans);font-size:9.6pt;font-weight:650;margin-top:.25em;}
+.opt p{font-size:9.2pt;color:var(--grey-dark);margin-top:.3em;}
+
+/* ---------- Two-column body text ---------- */
+.cols{display:flex;gap:1.4rem;margin-top:.75rem;break-inside:avoid;}
+.cols > div{flex:1;}
+.cols h3{font-family:var(--sans);font-size:9.6pt;font-weight:650;
+  margin-bottom:.15em;}
+.cols p{font-size:9.6pt;color:var(--grey-dark);}
+
+/* ---------- Summary ---------- */
+table{border-collapse:collapse;width:100%;margin-top:.8rem;font-size:9.8pt;break-inside:avoid;}
+th,td{text-align:left;padding:.5em .6em;border-bottom:1px solid var(--hairline);}
+thead th{font-size:7.4pt;font-weight:650;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--grey-mid);border-bottom:1px solid var(--ink);}
+tbody tr:last-child td,tbody tr:last-child th{border-bottom:1px solid var(--ink);}
+th:first-child,td:first-child{padding-left:0;}
+th:last-child,td:last-child{padding-right:0;}
+tbody th{font-weight:600;}
+td.num{text-align:right;font-family:var(--serif);font-size:12.5pt;
+  font-variant-numeric:tabular-nums;white-space:nowrap;}
+th small,td small{display:block;font-weight:400;color:var(--grey-mid);font-size:8.5pt;line-height:1.4;
+  margin-top:.1em;font-family:var(--sans);}
+
+/* ---------- Numbered process ---------- */
+.steps{margin-top:.8rem;break-inside:avoid;}
+.step{display:flex;gap:.7rem;margin-bottom:.5em;align-items:baseline;}
+.step .n{font-family:var(--serif);font-size:13pt;color:var(--accent);
+  min-width:1.1em;font-variant-numeric:tabular-nums;}
+.step h3{font-family:var(--sans);font-size:9.6pt;font-weight:650;}
+.step p{font-size:9.6pt;color:var(--grey-dark);margin-top:.1em;}
+
+/* ---------- Callout ---------- */
+.callout{margin-top:.9rem;border-left:2.5px solid var(--accent);
+  padding:.15rem 0 .15rem .9rem;}
+.callout p{color:var(--grey-dark);}
+.ask{margin-top:.8rem;background:var(--wash);border:1px solid var(--hairline);
+  padding:.85rem 1rem;}
+.ask .lbl{font-size:7.4pt;font-weight:700;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--accent);}
+.ask ol{margin:.5em 0 0;padding-left:1.15em;}
+.ask li{margin-bottom:.3em;}
+.ask li::marker{color:var(--accent);font-weight:650;}
+
+/* Start a section on a fresh page. Only worth using where a heading would
+   otherwise be left stranded at the foot of one — check the render before and
+   after, since a forced break can just move the gap somewhere else. */
+.newpage{break-before:page;}
+
+/* ---------- Sign-off ---------- */
+.signoff{margin-top:1.6rem;padding-top:.8rem;border-top:1px solid var(--ink);
+  break-inside:avoid;}
+.signoff p{color:var(--grey-dark);}
+.sig{margin-top:.9rem;font-family:var(--serif);font-size:13pt;}
+.sig span{display:block;font-family:var(--sans);font-size:8.3pt;color:var(--grey-mid);
+  letter-spacing:.04em;margin-top:.15em;}

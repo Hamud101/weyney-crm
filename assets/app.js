@@ -642,10 +642,12 @@
     }
     if (k === 'email') {
       var l = S.sheet.lead;
-      return '<div class="sheet-bg" data-close="1"><div class="sheet">' +
+      return '<div class="sheet-bg" data-close="1"><div class="sheet email">' +
         '<h3>Email</h3><div class="who">' + esc(l.name) + ' · ' + esc(l.email) + '</div>' +
-        '<label>Subject</label><input id="em-subj" value="Quick question about ' + esc(l.name) + '">' +
-        '<label>Message</label><textarea id="em-body" rows="7"></textarea>' +
+        tplPicker() +
+        '<label>Subject</label><input id="em-subj" value="' + esc(S.sheet.subj || '') + '">' +
+        '<label>Message</label><textarea id="em-body" rows="8">' + esc(S.sheet.body || '') + '</textarea>' +
+        attachLine() +
         '<div class="acts"><button class="cancel" data-close="1">Cancel</button>' +
         '<button class="go" data-send="1">Send</button></div></div></div>';
     }
@@ -788,6 +790,49 @@
       '<button class="go danger" data-docancel="1">Cancel ' + noun + '</button></div>';
   }
 
+  /* Email templates. The subject and body live in sheet state rather than only
+     in the DOM, because picking a template repaints both fields — and anything
+     typed before the picker arrives has to survive that repaint.
+     The server fills the placeholders: the client never guesses a contact name
+     or a company for a prospect. */
+  function emailSheet(lead, from) {
+    var s = { lead: lead, kind: 'email', from: from, tpl: '', tpls: null,
+              subj: 'Quick question about ' + lead.name, body: '' };
+    api('templates', null, { id: lead.id }).then(function (r) {
+      if (S.sheet !== s) return;          // closed, or another sheet took over
+      s.tpls = (r && r.templates) || [];
+      render();
+    });
+    return s;
+  }
+  function tplFor(id) {
+    var found = null;
+    (S.sheet.tpls || []).forEach(function (t) { if (t.id === id) found = t; });
+    return found;
+  }
+  function tplPicker() {
+    var tpls = S.sheet.tpls;
+    if (!tpls || !tpls.length) return '';
+    return '<label>Template</label><div class="tpls">' +
+      '<button class="tpl' + (S.sheet.tpl ? '' : ' on') + '" data-tpl="">Blank' +
+        '<span>Write it yourself — nothing attached</span></button>' +
+      tpls.map(function (t) {
+        return '<button class="tpl' + (S.sheet.tpl === t.id ? ' on' : '') +
+          '" data-tpl="' + esc(t.id) + '">' + esc(t.name) +
+          '<span>' + esc(t.blurb) + '</span></button>';
+      }).join('') + '</div>';
+  }
+  /* What is going out with the message, said plainly — a PDF the sender can't
+     see in the box is worth spelling out. */
+  function attachLine() {
+    var t = S.sheet.tpl ? tplFor(S.sheet.tpl) : null;
+    if (!t) return '';
+    return t.ready
+      ? '<div class="attach">Attaching <b>' + esc(t.attachment) + '</b></div>'
+      : '<div class="attach missing"><b>' + esc(t.attachment) + '</b> is not on the ' +
+        'server — deploy the attachments folder before sending this one.</div>';
+  }
+
   function render() {
     if (!S.boot) return;
     app.innerHTML = rail() +
@@ -823,7 +868,7 @@
       };
     });
     app.querySelectorAll('[data-email]').forEach(function (el) {
-      el.onclick = function () { S.sheet = { lead: S.queue[S.i], kind: 'email' }; render(); };
+      el.onclick = function () { S.sheet = emailSheet(S.queue[S.i]); render(); };
     });
     document.querySelectorAll('[data-close]').forEach(function (el) {
       el.onclick = function (e) { if (e.target !== el) return; S.sheet = null; render(); };
@@ -936,7 +981,7 @@
       };
     });
     app.querySelectorAll('[data-demail]').forEach(function (el) {
-      el.onclick = function () { S.sheet = { lead: S.detail, kind: 'email', from: 'detail' }; render(); };
+      el.onclick = function () { S.sheet = emailSheet(S.detail, 'detail'); render(); };
     });
     app.querySelectorAll('[data-dnote]').forEach(function (el) {
       el.onclick = function () {
@@ -1042,6 +1087,19 @@
     if (unc) unc.onclick = function () { S.sheet.cancelling = false; render(); };
     var docx = document.querySelector('[data-docancel]');
     if (docx) docx.onclick = doCancelEvent;
+    document.querySelectorAll('[data-tpl]').forEach(function (el) {
+      el.onclick = function () {
+        var t = el.dataset.tpl ? tplFor(el.dataset.tpl) : null;
+        S.sheet.tpl  = t ? t.id : '';
+        S.sheet.subj = t ? t.subject : 'Quick question about ' + S.sheet.lead.name;
+        S.sheet.body = t ? t.body : '';
+        render();
+      };
+    });
+    var esub = document.getElementById('em-subj');
+    if (esub) esub.oninput = function () { S.sheet.subj = esub.value; };
+    var ebod = document.getElementById('em-body');
+    if (ebod) ebod.oninput = function () { S.sheet.body = ebod.value; };
     var send = document.querySelector('[data-send]'); if (send) send.onclick = doEmail;
   }
 
@@ -1121,11 +1179,14 @@
   }
   function doEmail() {
     var l = S.sheet.lead;
+    var t = S.sheet.tpl ? tplFor(S.sheet.tpl) : null;
+    if (t && !t.ready) return toast('That PDF is missing on the server');
     api('email', { id: l.id, subject: document.getElementById('em-subj').value,
-                   body: document.getElementById('em-body').value })
+                   body: document.getElementById('em-body').value,
+                   template: S.sheet.tpl || '' })
       .then(function (r) {
         if (r.error) return toast(r.error);
-        toast('Sent to ' + r.to);
+        toast(r.attached ? 'Sent to ' + r.to + ' with the PDF' : 'Sent to ' + r.to);
         S.sheet = null; return loadQueue().then(render);
       });
   }

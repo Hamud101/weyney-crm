@@ -32,12 +32,26 @@ class Smtp {
         }
     }
 
-    public function send(string $to, string $subject, string $body, string $replyTo = ''): array {
+    /**
+     * $attachments: [['path' => absolute path, 'name' => filename shown to the
+     * recipient, 'type' => MIME type], …]. With none, the message stays the
+     * plain single-part text/plain it always was.
+     */
+    public function send(string $to, string $subject, string $body, string $replyTo = '',
+                         array $attachments = []): array {
         $host = cfg('smtp_host'); $port = (int)cfg('smtp_port', 465);
         $user = cfg('smtp_user'); $pass = cfg('smtp_pass');
         $from = cfg('smtp_from', $user);
 
         if (!$pass) return [false, 'SMTP password not configured', []];
+
+        // Read the attachments before saying hello, so a missing file fails
+        // here rather than half way through a DATA command.
+        try {
+            [$contentHeaders, $mimeBody] = $this->compose($body, $attachments);
+        } catch (Throwable $e) {
+            return [false, $e->getMessage(), []];
+        }
 
         $ctx = stream_context_create(['ssl' => ['verify_peer' => true, 'verify_peer_name' => true]]);
         $this->fp = @stream_socket_client("ssl://$host:$port", $errno, $errstr, 20,
@@ -62,13 +76,12 @@ class Smtp {
                 'Date: ' . date('r'),
                 'Message-ID: <' . bin2hex(random_bytes(12)) . '@weyney.com>',
                 'MIME-Version: 1.0',
-                'Content-Type: text/plain; charset=UTF-8',
-                'Content-Transfer-Encoding: 8bit',
             ];
+            foreach ($contentHeaders as $h) $headers[] = $h;
             if ($replyTo) $headers[] = 'Reply-To: <' . $replyTo . '>';
 
             // Dot-stuffing: a line that is just "." would end DATA early.
-            $safe = preg_replace('/^\./m', '..', str_replace("\r\n", "\n", $body));
+            $safe = preg_replace('/^\./m', '..', str_replace("\r\n", "\n", $mimeBody));
             $safe = str_replace("\n", "\r\n", $safe);
 
             fwrite($this->fp, implode("\r\n", $headers) . "\r\n\r\n" . $safe . "\r\n.\r\n");
@@ -83,6 +96,51 @@ class Smtp {
         }
     }
 
+    /**
+     * Build the Content-* headers and the body they describe.
+     *
+     * No attachments: exactly what this class always sent, so nothing about
+     * plain messages changes. With attachments: multipart/mixed, the text as
+     * the first part and each file base64'd after it. Line breaks are left as
+     * "\n" here — send() converts the whole payload to CRLF in one pass.
+     */
+    private function compose(string $body, array $attachments): array {
+        if (!$attachments) {
+            return [['Content-Type: text/plain; charset=UTF-8',
+                     'Content-Transfer-Encoding: 8bit'], $body];
+        }
+
+        $b = '=_weyney_' . bin2hex(random_bytes(16));
+        $out = "This is a message in MIME format.\n\n"
+             . "--$b\n"
+             . "Content-Type: text/plain; charset=UTF-8\n"
+             . "Content-Transfer-Encoding: 8bit\n\n"
+             . str_replace("\r\n", "\n", $body) . "\n";
+
+        foreach ($attachments as $a) {
+            $path = (string)($a['path'] ?? '');
+            if (!is_file($path) || !is_readable($path)) {
+                throw new RuntimeException('attachment missing: ' . basename($path));
+            }
+            $data = file_get_contents($path);
+            if ($data === false) throw new RuntimeException('could not read ' . basename($path));
+
+            // Quote-safe: the recipient's client shows this name, and a stray
+            // quote or newline in it would break the header.
+            $name = str_replace(['"', "\r", "\n"], '', $a['name'] ?? basename($path));
+            $type = $a['type'] ?? 'application/octet-stream';
+
+            $out .= "--$b\n"
+                  . 'Content-Type: ' . $type . '; name="' . $name . "\"\n"
+                  . "Content-Transfer-Encoding: base64\n"
+                  . 'Content-Disposition: attachment; filename="' . $name . "\"\n\n"
+                  . chunk_split(base64_encode($data), 76, "\n");
+        }
+        $out .= "--$b--\n";
+
+        return [['Content-Type: multipart/mixed; boundary="' . $b . '"'], $out];
+    }
+
     private function encodeHeader(string $s): string {
         return preg_match('/[\x80-\xFF]/', $s)
             ? '=?UTF-8?B?' . base64_encode($s) . '?='
@@ -90,6 +148,7 @@ class Smtp {
     }
 }
 
-function send_mail(string $to, string $subject, string $body, string $replyTo = ''): array {
-    return (new Smtp())->send($to, $subject, $body, $replyTo);
+function send_mail(string $to, string $subject, string $body, string $replyTo = '',
+                   array $attachments = []): array {
+    return (new Smtp())->send($to, $subject, $body, $replyTo, $attachments);
 }

@@ -7,3 +7,6 @@
 secrets.php
 *.sqlite
 *.sqlite-journal
+
+# Local JSON snapshots of CRM data. Lead records — never deployed, never committed.
+exports/

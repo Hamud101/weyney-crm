@@ -2,6 +2,7 @@
 require_once __DIR__ . '/lib/auth.php';
 require_once __DIR__ . '/lib/google.php';
 require_once __DIR__ . '/lib/mailer.php';
+require_once __DIR__ . '/lib/templates.php';
 require_once __DIR__ . '/lib/trello.php';
 require_auth();
 
@@ -435,11 +436,22 @@ case 'cancel_event': {
     json_out(['ok' => true, 'lead_id' => $ev['lead_id']]);
 }
 
-/* Send one email to a lead. Logged as an activity so the history shows it. */
+/* The email templates, with placeholders already filled from this lead so the
+   sheet can drop one straight into the fields. */
+case 'templates': {
+    $lead = lead_row($pdo, (string)($in['id'] ?? ''));
+    if (!$lead) json_out(['error' => 'not found'], 404);
+    json_out(['templates' => tpl_render_all($lead)]);
+}
+
+/* Send one email to a lead. Logged as an activity so the history shows it.
+   A template id only decides what gets attached — the subject and body are
+   whatever the sender ended up with after editing. */
 case 'email': {
     $id      = (string)($in['id'] ?? '');
     $subject = trim((string)($in['subject'] ?? ''));
     $body    = rtrim((string)($in['body'] ?? ''));
+    $tplId   = trim((string)($in['template'] ?? ''));
     $lead = lead_row($pdo, $id);
     if (!$lead) json_out(['error' => 'not found'], 404);
     if (!filter_var($lead['email'], FILTER_VALIDATE_EMAIL)) {
@@ -447,12 +459,20 @@ case 'email': {
     }
     if ($subject === '' || $body === '') json_out(['error' => 'subject and body required'], 400);
 
-    [$sent, $info] = send_mail($lead['email'], $subject, $body, cfg('smtp_from'));
+    // Only ids in the registry resolve to a file, so nothing off disk can be
+    // named from the outside.
+    $attach = $tplId !== '' ? tpl_attachments($tplId) : [];
+    if ($tplId !== '' && !$attach) json_out(['error' => 'unknown template'], 400);
+
+    [$sent, $info] = send_mail($lead['email'], $subject, $body, cfg('smtp_from'), $attach);
     if (!$sent) json_out(['error' => 'send failed: ' . $info], 502);
 
-    log_act($pdo, $id, 'email', 'Emailed ' . $lead['email'] . ' — ' . $subject);
+    $note = 'Emailed ' . $lead['email'] . ' — ' . $subject;
+    if ($attach) $note .= ' (attached ' . $attach[0]['name'] . ')';
+    log_act($pdo, $id, 'email', $note);
     touch_lead($pdo, $id);
-    json_out(['ok' => true, 'to' => $lead['email']]);
+    json_out(['ok' => true, 'to' => $lead['email'],
+              'attached' => $attach ? $attach[0]['name'] : null]);
 }
 
 /* Dashboard numbers. One query set, computed server-side so the client stays
