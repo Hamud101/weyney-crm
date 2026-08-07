@@ -15,6 +15,8 @@
     dash:  '<svg viewBox="0 0 24 24"><path d="M3 3h8v8H3zm10 0h8v5h-8zM3 13h8v8H3zm10-3h8v11h-8z"/></svg>',
     cal:'<svg viewBox="0 0 24 24"><path d="M7 1v2h10V1h2v2h1a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H4a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h1V1zm14 9H3v10a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1zM7 12h4v4H7z"/></svg>',
     clients:'<svg viewBox="0 0 24 24"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-7 1.7-7 4v3h14v-3c0-2.3-3.7-4-7-4zm8.5-2a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zm.5 2c-.9 0-1.9.2-2.7.5 1.4.9 2.2 2.1 2.2 3.5v3h5v-3c0-2.1-2.6-4-4.5-4z"/></svg>',
+    /* A funnel: the pipeline, narrowing. Reads as "not clients yet". */
+    leads:'<svg viewBox="0 0 24 24"><path d="M2.4 3.5A1 1 0 0 1 3.3 3h17.4a1 1 0 0 1 .78 1.63L14.5 13.2V20a1 1 0 0 1-1.45.9l-3-1.5a1 1 0 0 1-.55-.9v-5.3L2.52 4.63a1 1 0 0 1-.12-1.13z"/></svg>',
     gear:  '<svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm0 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm8.5-2c0-.5 0-1-.1-1.4l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-2.4-1.4L15.2 2h-4l-.4 2.6c-.9.3-1.7.8-2.4 1.4l-2.4-1-2 3.4 2 1.6a8.6 8.6 0 0 0 0 2.8l-2 1.6 2 3.4 2.4-1c.7.6 1.5 1.1 2.4 1.4l.4 2.6h4l.4-2.6c.9-.3 1.7-.8 2.4-1.4l2.4 1 2-3.4-2-1.6c.1-.4.1-.9.1-1.4z"/></svg>'
   };
 
@@ -28,7 +30,7 @@
     var v = p[0];
     if (v === 'call')   return { view: 'call', stage: p[1] || 'new' };
     if (v === 'lead' && p[1]) return { view: 'detail', id: p[1] };
-    if (['dash', 'cal', 'clients'].indexOf(v) >= 0) return { view: v };
+    if (['dash', 'cal', 'clients', 'leads'].indexOf(v) >= 0) return { view: v };
     return null;
   }
   function writeHash() {
@@ -118,6 +120,11 @@
   LINKICON.yelp = LINKICON.web;   // a Yelp listing is still a page on the web
 
   function boot()      { return api('bootstrap').then(function (b) { S.boot = b; }); }
+  function loadLeads() {
+    return api('pipeline').then(function (r) {
+      S.leads = r.leads || []; S.leadTotal = r.total || S.leads.length;
+    });
+  }
   function loadQueue() {
     return api('queue', null, { stage: S.stage }).then(function (r) {
       S.queue = r.leads || []; S.nextUp = r.next_up || [];
@@ -132,10 +139,14 @@
       return '<button class="rbtn ' + (S.view === id ? 'on' : '') + '" data-tab="' + id + '" title="' + label + '">' +
              ICON[id] + (id === 'due' && dueN ? '<span class="dot">' + dueN + '</span>' : '') + '</button>';
     }
+    /* The logo IS the dashboard button — it always went to #dash, so a second
+       grid icon doing the same thing was just taking up a slot. It carries the
+       active state like any other tab now. */
     return '<div class="rail">' +
-      '<a class="logo" href="#dash" title="Weyney Media">' +
+      '<a class="logo' + (S.view === 'dash' ? ' on' : '') + '" href="#dash" ' +
+        'data-tab="dash" title="Dashboard">' +
         '<img src="/crm/assets/weyney-logo.svg" alt="Weyney Media"></a>' +
-      b('dash', 'Dashboard') + b('call', 'Call queue') + b('clients', 'Clients') + b('cal', 'Calendar') +
+      b('call', 'Call queue') + b('leads', 'Leads') + b('clients', 'Clients') + b('cal', 'Calendar') +
       '<div class="spacer"></div>' +
       '<a class="rbtn ' + (S.boot.calendar_connected ? '' : 'alert') + '" href="/crm/oauth_google.php" ' +
         'title="' + (S.boot.calendar_connected ? 'Calendar connected' : 'Calendar NOT connected') + '">' +
@@ -148,22 +159,36 @@
   /* The top bar used to sit empty. It now carries where you are in the queue. */
   function head() {
     var pct = S.queue.length ? Math.round((S.i / S.queue.length) * 100) : 0;
-    var titles = { dash:'Dashboard', call:'Call queue', cal:'Calendar', clients:'Clients' };
+    var titles = { dash:'Dashboard', call:'Call queue', cal:'Calendar',
+                   clients:'Clients', leads:'Leads' };
     var ctx = '<b>' + (titles[S.view] || 'Dashboard') + '</b>';
     if (S.view === 'call' && S.queue.length) {
       ctx += ' <span class="dim">lead ' + Math.min(S.i + 1, S.queue.length) +
              ' of ' + (S.stageTotal || S.queue.length) + ' in ' +
              esc((S.boot.stages[S.stage] || {}).label || S.stage) + '</span>';
     }
+    if (S.view === 'leads' && S.leads) {
+      ctx += ' <span class="dim">' + S.leads.length +
+             (S.leadTotal > S.leads.length ? ' of ' + S.leadTotal : '') +
+             ' not signed yet</span>';
+    }
+    if (S.view === 'clients' && S.clients) {
+      ctx += ' <span class="dim">' + S.clients.length + ' signed</span>';
+    }
     return '<div class="head">' +
       '<span class="appname">Weyney Media</span>' +
       '<span class="ctx">' + ctx + '</span>' +
       '<span class="grow"></span>' +
       (S.view === 'call' && S.queue.length ? '<span class="headbar"><i style="width:' + pct + '%"></i></span>' : '') +
-      /* Only on the Calendar view — it was noise everywhere else. */
+      /* Same slot on both list views, but they add different things: a client
+         starts at Won, a lead starts wherever the conversation actually is. */
       (S.view === 'clients'
-        ? '<button class="addpill" data-newlead="1">+ Add client</button>'
+        ? '<button class="addpill" data-newlead="won">+ Add client</button>'
         : '') +
+      (S.view === 'leads'
+        ? '<button class="addpill" data-newlead="contacted">+ Add lead</button>'
+        : '') +
+      /* Only on the Calendar view — it was noise everywhere else. */
       (S.view === 'cal'
         ? '<a class="calpill ' + (S.boot.calendar_connected ? 'on' : 'off') + '" ' +
           'href="/crm/oauth_google.php' + (S.boot.calendar_connected ? '' : '?start=1') + '">' +
@@ -484,7 +509,8 @@
     }).join('') || '<div class="row" style="color:var(--faint)">Nothing logged yet.</div>';
     var evs = (l.events || []).filter(function (e) { return e.status === 'scheduled'; });
 
-    return '<button class="backlink" data-back="1">← Back to clients</button>' +
+    var back = { leads:'leads', clients:'clients', dash:'the dashboard' }[S.from] || 'clients';
+    return '<button class="backlink" data-back="1">← Back to ' + back + '</button>' +
       '<div class="panel calls"><div class="qcard">' +
       '<div class="qleft">' +
         '<span class="tag">' + esc((S.boot.stages[l.stage] || {}).label || l.stage) + '</span>' +
@@ -534,46 +560,137 @@
       '</div></div></div>';
   }
 
-  /* Grouped by where they actually are. "Clients" covering everyone from
-     answered-once to paying was the whole problem — the headings do the
-     demarcating so the tag doesn't have to. */
-  var CLIENT_GROUPS = [
-    { key:'won',      label:'Clients',        sub:'Closed and won',            stages:['won'] },
-    { key:'proposal', label:'Proposal out',   sub:'Quoted, awaiting an answer', stages:['proposal'] },
-    { key:'held',     label:'Demo held',      sub:'Pitched, needs a next step', stages:['demo_done'] },
-    { key:'booked',   label:'Demo scheduled', sub:'On the calendar',            stages:['demo_set'] },
-    { key:'noshow',   label:'Demo no-show',   sub:'Missed it — rebook',         stages:['demo_noshow'] },
-    { key:'talking',  label:'In conversation',sub:'Reached, nothing booked yet', stages:['contacted'] },
-    { key:'nurture',  label:'Nurture',        sub:'Not now, worth keeping warm', stages:['nurture'] }
-  ];
+  /* One row, shared by Leads and Clients. `extra` is whatever that view wants
+     hanging off the right-hand end — a stage picker on Leads, nothing here. */
+  function leadRow(l, extra) {
+    var next = l.next_at
+      ? '<span class="nx">' + when(l.next_at) + '</span>'
+      : '<span class="nx none">nothing booked' +
+        (l.last_ts ? ' · ' + stamp(l.last_ts) : '') + '</span>';
+    return '<div class="item click' + (extra ? ' withstage' : '') + '" data-openlead="' + esc(l.id) + '">' +
+      '<div class="who2"><div class="nm">' + esc(l.name) + '</div>' +
+      '<div class="sub">' + esc(prettyPhone(l.phone)) +
+        (l.contact ? ' · ' + esc(l.contact) : '') +
+        (l.city ? ' · ' + esc(l.city) : '') + '</div></div>' +
+      '<div class="when">' + next + '</div>' + (extra || '') + '</div>';
+  }
+
+  /* Clients are the ones who signed — nothing else. Cards, not rows: a handful
+     of accounts stretched across a full-width row is mostly empty space, and
+     unlike a lead there is no queue position to scan down. Each card carries
+     the details you actually reach for mid-call, so the record only has to be
+     opened when you want the history. */
+  function clientCard(l) {
+    var fact = function (k, v) {
+      return v ? '<dt>' + k + '</dt><dd>' + v + '</dd>' : '';
+    };
+    return '<div class="ccard click" data-openlead="' + esc(l.id) + '">' +
+      '<div class="cctop">' +
+        '<div class="ccname">' + esc(l.name) + '</div>' +
+        (l.city ? '<div class="ccwhere">' + esc(l.city) + '</div>' : '') +
+      '</div>' +
+      '<dl class="facts">' +
+        fact('Contact', esc(l.contact)) +
+        fact('Phone', l.phone
+          ? '<a href="' + dialHref(l.phone) + '" target="_blank" rel="noopener" ' +
+            'onclick="event.stopPropagation()" title="Dial with Google Voice">' +
+            esc(prettyPhone(l.phone)) + '</a>'
+          : '') +
+        fact('Email', l.email
+          ? '<a href="mailto:' + esc(l.email) + '" onclick="event.stopPropagation()">' +
+            esc(l.email) + '</a>'
+          : '') +
+        fact('Website', l.website
+          ? '<a href="https://' + esc(l.website) + '" target="_blank" rel="noopener" ' +
+            'onclick="event.stopPropagation()">' + esc(l.website) + '</a>'
+          : '') +
+      '</dl>' +
+      '<div class="ccfoot">' +
+        (l.next_at
+          ? '<span class="nx">' + when(l.next_at) + '</span>'
+          : '<span class="nx none">nothing booked</span>') +
+        (l.last_ts ? '<span class="cclast">last touched ' + stamp(l.last_ts) + '</span>' : '') +
+      '</div></div>';
+  }
 
   function viewClients() {
     var c = S.clients;
     if (!c) return '<div class="panel"><div class="empty">Loading…</div></div>';
-    if (!c.length) return '<div class="panel"><div class="empty"><b>Nobody here yet</b>' +
-      'Leads arrive once you have spoken to them and booked something.</div></div>';
+    if (!c.length) return '<div class="panel"><div class="empty"><b>No clients yet</b>' +
+      'A lead becomes a client when they sign — move them to Won and they appear here.</div></div>';
+    return '<div class="cgroup won">' +
+      '<div class="ghead"><b>Clients</b>' +
+        '<span class="gsub">Signed and paying</span>' +
+        '<span class="gcount">' + c.length + '</span></div>' +
+      '<div class="cgrid">' + c.map(clientCard).join('') + '</div></div>';
+  }
 
-    return CLIENT_GROUPS.map(function (g) {
-      var rows = c.filter(function (l) { return g.stages.indexOf(l.stage) >= 0; });
+  /* Leads: everyone who has not signed, grouped by where they actually are.
+     Ordered closest-to-signing first, so the top of the page is the work that
+     is nearly money and the cold end sits below the fold. */
+  var LEAD_GROUPS = [
+    { key:'proposal', label:'Proposal out',   sub:'Quoted, awaiting a signature', stages:['proposal'] },
+    { key:'held',     label:'Demo held',      sub:'Pitched, needs a next step',   stages:['demo_done'] },
+    { key:'booked',   label:'Demo scheduled', sub:'On the calendar',              stages:['demo_set'] },
+    { key:'noshow',   label:'Demo no-show',   sub:'Missed it — rebook',           stages:['demo_noshow'] },
+    { key:'talking',  label:'In conversation',sub:'Reached, nothing booked yet',  stages:['contacted'] },
+    { key:'vm',       label:'Voicemail',      sub:'Pitch left, waiting on a call back', stages:['voicemail'] },
+    { key:'noanswer', label:'No answer',      sub:'Dialled, never reached',       stages:['attempting'] },
+    { key:'nurture',  label:'Nurture',        sub:'Not now, worth keeping warm',  stages:['nurture'] },
+    { key:'cold',     label:'Not called yet', sub:'Untouched — work these in the call queue', stages:['new'] },
+    { key:'lost',     label:'Lost',           sub:'Closed out',                   stages:['lost'] }
+  ];
+
+  /* Counts across the whole pipeline, and a click-to-narrow filter. Same idea
+     as the call queue's stage strip, so the two read the same way. */
+  function leadStrip() {
+    var out = '<div class="stages leadstrip">';
+    out += '<button data-lstage="" class="' + (S.leadFilter ? '' : 'on') + '">All' +
+           '<i>' + S.leads.length + '</i></button>';
+    LEAD_GROUPS.forEach(function (g) {
+      var n = S.leads.filter(function (l) { return g.stages.indexOf(l.stage) >= 0; }).length;
+      if (!n && S.leadFilter !== g.key) return;
+      out += '<button data-lstage="' + g.key + '" class="' + (S.leadFilter === g.key ? 'on' : '') + '">' +
+             esc(g.label) + '<i>' + n + '</i></button>';
+    });
+    return out + '</div>';
+  }
+
+  function viewLeads() {
+    if (!S.leads) return '<div class="panel"><div class="empty">Loading…</div></div>';
+    if (!S.leads.length) return '<div class="panel"><div class="empty"><b>No leads</b>' +
+      'Import a call list, or add one by hand with + Add lead.</div></div>';
+
+    var body = LEAD_GROUPS.map(function (g) {
+      if (S.leadFilter && S.leadFilter !== g.key) return '';
+      var rows = S.leads.filter(function (l) { return g.stages.indexOf(l.stage) >= 0; });
       if (!rows.length) return '';
+      /* A cold list can hold thousands in one stage; past a screenful of
+         screenfuls the call queue is the right tool, not this list. */
+      var shown = rows.slice(0, 200);
       return '<div class="cgroup ' + g.key + '">' +
         '<div class="ghead"><b>' + esc(g.label) + '</b>' +
           '<span class="gsub">' + esc(g.sub) + '</span>' +
           '<span class="gcount">' + rows.length + '</span></div>' +
-        '<div class="list">' + rows.map(function (l) {
-          var next = l.next_at
-            ? '<span class="nx">' + when(l.next_at) + '</span>'
-            : '<span class="nx none">nothing booked' +
-              (l.last_ts ? ' · ' + stamp(l.last_ts) : '') + '</span>';
-          return '<div class="item click" data-openlead="' + esc(l.id) + '">' +
-            '<div style="min-width:0"><div class="nm">' + esc(l.name) + '</div>' +
-            '<div class="sub">' + esc(prettyPhone(l.phone)) +
-              (l.contact ? ' · ' + esc(l.contact) : '') +
-              (l.city ? ' · ' + esc(l.city) : '') + '</div></div>' +
-            '<div class="when">' + next + '</div></div>';
-        }).join('') + '</div></div>';
-    }).join('') || '<div class="panel"><div class="empty"><b>Nobody here yet</b>' +
-      'Leads arrive once you have spoken to them.</div></div>';
+        '<div class="list">' + shown.map(function (l) {
+          return leadRow(l, '<select class="rowstage" data-move="' + esc(l.id) + '" ' +
+                            'title="Move this lead to another stage">' +
+                            stageOptions(l.stage) + '</select>');
+        }).join('') +
+        (rows.length > shown.length
+          ? '<p class="capnote">+' + (rows.length - shown.length) +
+            ' more in this stage — work them from the call queue</p>'
+          : '') +
+        '</div></div>';
+    }).join('');
+
+    return leadStrip() + (body ||
+      '<div class="panel"><div class="empty"><b>Nothing in that stage</b>' +
+      'Pick another above, or All.</div></div>') +
+      (S.leadTotal > S.leads.length
+        ? '<p class="capnote">Showing the ' + S.leads.length + ' most recently touched of ' +
+          S.leadTotal + ' leads.</p>'
+        : '');
   }
 
   function evItem(e) {
@@ -622,9 +739,12 @@
         '<button class="go" data-pfsave="1">Save</button></div></div></div>';
     }
     if (k === 'newlead') {
+      var won = S.sheet.stage === 'won';
       return '<div class="sheet-bg" data-close="1"><div class="sheet">' +
-        '<h3>Add a client</h3>' +
-        '<div class="who">Someone who came in outside the cold list</div>' +
+        '<h3>' + (won ? 'Add a client' : 'Add a lead') + '</h3>' +
+        '<div class="who">' + (won
+          ? 'Someone already signed — they go straight to Clients'
+          : 'Someone who came in outside the cold list') + '</div>' +
         '<label>Business name</label><input id="nl-name" placeholder="Caring Hands Autism" autofocus>' +
         '<label>Contact</label><input id="nl-contact" placeholder="Who you deal with">' +
         '<label>Phone</label><input id="nl-phone" placeholder="612-555-0123">' +
@@ -634,7 +754,8 @@
         '<label>Social profiles <span class="opt">— paste URLs, comma separated</span></label>' +
         '<input id="nl-social" placeholder="facebook.com/theirpage, instagram.com/theirpage">' +
         '<label>Where are they in the pipeline?</label>' +
-        '<select id="nl-stage" class="nbfield">' + stageOptions('contacted') + '</select>' +
+        '<select id="nl-stage" class="nbfield">' +
+          stageOptions(S.sheet.stage || 'contacted') + '</select>' +
         '<label>How did they come in?</label>' +
         '<input id="nl-source" placeholder="Referral, inbound, event…">' +
         '<div class="acts"><button class="cancel" data-close="1">Cancel</button>' +
@@ -841,6 +962,7 @@
           (S.view === 'call' ? viewCall() :
            S.view === 'cal' ? viewCal() :
            S.view === 'detail' ? viewDetail() :
+           S.view === 'leads' ? viewLeads() :
            S.view === 'clients' ? viewClients() : viewDash()) +
         '</div></div>' +
       '</div>' + (S.sheet ? sheet() : '');
@@ -972,7 +1094,26 @@
       };
     });
     app.querySelectorAll('[data-back]').forEach(function (el) {
-      el.onclick = function () { go({ view: 'clients' }); };
+      el.onclick = function () { go({ view: S.from || 'clients' }); };
+    });
+    app.querySelectorAll('[data-lstage]').forEach(function (el) {
+      el.onclick = function () { S.leadFilter = el.dataset.lstage; render(); };
+    });
+    /* Move a lead without opening it — the one edit this list needs, because
+       "they signed" is the change you make most often and it belongs next to
+       the name. Moving to Won drops them off this list and into Clients. */
+    app.querySelectorAll('[data-move]').forEach(function (el) {
+      el.onclick = function (e) { e.stopPropagation(); };   // don't open the record
+      el.onchange = function () {
+        var id = el.dataset.move, stage = el.value;
+        var lead = S.leads.filter(function (l) { return l.id === id; })[0];
+        api('set_stage', { id: id, stage: stage }).then(function (r) {
+          if (r.error) return toast(r.error);
+          var label = (S.boot.stages[r.stage] || {}).label || r.stage;
+          toast((lead ? lead.name : 'Lead') + ' → ' + label);
+          return boot().then(function () { return loadLeads().then(render); });
+        });
+      };
     });
     app.querySelectorAll('[data-dsched]').forEach(function (el) {
       el.onclick = function () {
@@ -1036,7 +1177,10 @@
         });
     };
     app.querySelectorAll('[data-newlead]').forEach(function (el) {
-      el.onclick = function () { S.sheet = { kind: 'newlead' }; render(); };
+      el.onclick = function () {
+        S.sheet = { kind: 'newlead', stage: el.dataset.newlead || 'contacted' };
+        render();
+      };
     });
     var ns = document.querySelector('[data-newsave]');
     if (ns) ns.onclick = function () {
@@ -1195,6 +1339,9 @@
      UI never hangs, then loads that view's data. */
   function go(target, opts) {
     opts = opts || {};
+    /* Remember which list a record was opened from, so the back link goes back
+       where you came from rather than always to Clients. */
+    if (target.view === 'detail' && S.view !== 'detail') S.from = S.view;
     S.view = target.view;
     if (target.stage && target.stage !== S.stage) { S.stage = target.stage; S.queue = []; S.i = 0; }
     if (target.view === 'detail') { S.detailId = target.id; if (!opts.keep) S.detail = null; }
@@ -1202,6 +1349,7 @@
 
     if (target.view === 'dash')    return api('stats').then(function (r) { S.stats = r; render(); });
     if (target.view === 'clients') return api('clients').then(function (r) { S.clients = r.clients; render(); });
+    if (target.view === 'leads')   return loadLeads().then(render);
     if (target.view === 'cal')     return api('calendar').then(function (r) { S.cal = r.events; render(); });
     if (target.view === 'detail')  return api('lead', null, { id: target.id })
                                      .then(function (l) { S.detail = l; render(); });

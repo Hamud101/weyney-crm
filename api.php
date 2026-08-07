@@ -604,7 +604,6 @@ case 'stats': {
     ]);
 }
 
-/* Anyone worth treating as a relationship rather than a queue entry. */
 /* Everything scheduled, for the calendar view. Grouped client-side by day. */
 case 'calendar': {
     $from = (int)($in['from'] ?? strtotime('today'));
@@ -617,16 +616,40 @@ case 'calendar': {
     json_out(['events' => $rows->fetchAll()]);
 }
 
+/* Officially clients: signed and paying, nobody else. The signature is the
+   line — everyone still being sold to sits in 'pipeline' below, however far
+   along they are. Keeping "quoted" and "paying" in one list was what made this
+   view impossible to use as a book of business. */
 case 'clients': {
     $rows = $pdo->query("
         SELECT l.*, (SELECT COUNT(*) FROM activities a WHERE a.lead_id=l.id) acts,
                (SELECT MAX(ts) FROM activities a WHERE a.lead_id=l.id) last_ts,
                (SELECT MIN(starts_at) FROM events e WHERE e.lead_id=l.id AND e.status='scheduled') next_at
         FROM leads l
-        WHERE l.stage IN ('contacted','demo_set','demo_noshow','demo_done','proposal','won','nurture')
-        ORDER BY CASE l.stage WHEN 'won' THEN 0 WHEN 'proposal' THEN 1 WHEN 'demo_done' THEN 2
-                              WHEN 'demo_set' THEN 3 ELSE 4 END, l.updated_at DESC")->fetchAll();
+        WHERE l.stage = 'won'
+        ORDER BY l.updated_at DESC")->fetchAll();
     json_out(['clients' => $rows]);
+}
+
+/* The Leads view: every prospect who has not signed, at whatever stage they
+   have reached. Deliberately includes 'new' — the call queue is where you work
+   an untouched lead, but this is the only place that answers "who have we got".
+   'won' is the sole exclusion; those are Clients.
+
+   Capped, with the true count alongside, so a big cold list renders as a list
+   rather than a hang. Anything past the cap is reachable from the call queue. */
+case 'pipeline': {
+    $rows = $pdo->query("
+        SELECT l.*, (SELECT COUNT(*) FROM activities a WHERE a.lead_id=l.id) acts,
+               (SELECT MAX(ts) FROM activities a WHERE a.lead_id=l.id) last_ts,
+               (SELECT MIN(starts_at) FROM events e WHERE e.lead_id=l.id AND e.status='scheduled') next_at
+        FROM leads l
+        WHERE l.stage <> 'won'
+        ORDER BY l.updated_at DESC LIMIT 500")->fetchAll();
+    json_out([
+        'leads' => $rows,
+        'total' => (int)$pdo->query("SELECT COUNT(*) FROM leads WHERE stage <> 'won'")->fetchColumn(),
+    ]);
 }
 
 /* Add a lead by hand. The import covers the cold list; inbound and referrals
