@@ -10,3 +10,9 @@ secrets.php
 
 # Local JSON snapshots of CRM data. Lead records — never deployed, never committed.
 exports/
+
+# Build-tool bytecode
+__pycache__/
+
+# aider working files — local tool state, not project source
+.aider*

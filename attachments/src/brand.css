@@ -119,3 +119,43 @@ th small,td small{display:block;font-weight:400;color:var(--grey-mid);font-size:
 .sig{margin-top:.9rem;font-family:var(--serif);font-size:13pt;}
 .sig span{display:block;font-family:var(--sans);font-size:8.3pt;color:var(--grey-mid);
   letter-spacing:.04em;margin-top:.15em;}
+
+/* ---------- Signature block ----------
+   A signature line is an <a>, not a <div>, so that build.py's stamping step can
+   find its exact rectangle and swap it for a fillable PDF form field. Chrome's
+   print-to-PDF records every link with precise coordinates; nothing else in a
+   printed page carries position information we can read back out.
+
+   The href is the marker. weyney.invalid can never resolve (RFC 2606), so a
+   marker that survives to a client is a dead link, not a live destination.
+
+     <div class="sign">
+       <div>
+         <h3>For the Client &mdash; signing accepts this Agreement</h3>
+         <a class="line" href="https://weyney.invalid/sigfield#client-name"></a>
+         <div class="line-l">Name and title</div>
+         <a class="line" href="https://weyney.invalid/sigfield#client-signature"></a>
+         <div class="line-l">Signature</div>
+         <a class="line" href="https://weyney.invalid/sigfield#client-date"></a>
+         <div class="line-l">Date</div>
+       </div>
+       <div>
+         <h3>For the Company</h3>
+         <div class="line filled"><span>Hamud &mdash; Weyney Media</span></div>
+         <div class="line-l">Name and title</div>
+       </div>
+     </div>
+
+   Countersigned lines stay plain divs: they are already filled in, so there is
+   nothing for the client to type into. */
+.sign{display:grid;gap:2.5rem;margin-top:1.2rem;}
+@media(min-width:38rem){.sign{grid-template-columns:1fr 1fr;}}
+.sign h3{font-family:var(--sans);font-size:.72rem;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--grey-mid);margin:0 0 1.2rem;}
+.line{border-bottom:1px solid var(--ink);height:2.1rem;margin-bottom:.3rem;}
+a.line{display:block;color:inherit;text-decoration:none;}
+.line.filled{display:flex;align-items:flex-end;padding-bottom:.25rem;color:var(--ink);}
+/* A typed signature, set in the brand serif. Deliberately not an imitation of
+   handwriting — a typed name is a valid electronic signature and an honest one. */
+.line.sig span{font-family:var(--serif);font-size:1.5rem;line-height:1;}
+.line-l{font-size:.78rem;color:var(--grey-mid);margin-bottom:1.2rem;}
