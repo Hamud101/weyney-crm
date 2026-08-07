@@ -112,19 +112,31 @@ function prop_generate(PDO $pdo, array $lead, array $p): array {
     $pdf = $work . '/agreement.pdf';
     file_put_contents($src, $html);
 
-    /* --no-sandbox because shared hosting has no user namespaces, and
-       --disable-dev-shm-usage because /dev/shm here is small enough that Chrome
-       will crash mid-render without it. */
-    $cmd = 'LD_LIBRARY_PATH=' . escapeshellarg(chrome_lib()) . ' ' .
+    /* HOME and --user-data-dir are not optional here. Under the CLI this works
+       without them; under LiteSpeed, which serves the site, HOME is unset, so
+       Chrome has nowhere to put its profile and dies before rendering — the
+       exact difference between "works over SSH" and "fails in the app".
+
+       --no-sandbox because shared hosting has no user namespaces, and
+       --disable-dev-shm-usage because /dev/shm here is too small to render
+       into. The dbus errors Chrome prints are harmless and unavoidable. */
+    $cmd = 'HOME=' . escapeshellarg($work) .
+           ' LD_LIBRARY_PATH=' . escapeshellarg(chrome_lib()) . ' ' .
            escapeshellarg(chrome_bin()) .
            ' --headless --no-sandbox --disable-gpu --disable-dev-shm-usage' .
+           ' --user-data-dir=' . escapeshellarg($work . '/chrome') .
+           ' --crash-dumps-dir=' . escapeshellarg($work) .
            ' --no-pdf-header-footer --print-to-pdf=' . escapeshellarg($pdf) .
            ' ' . escapeshellarg('file://' . $src) . ' 2>&1';
     exec($cmd, $out, $rc);
 
     if (!is_file($pdf) || filesize($pdf) < 1000) {
+        /* Say what actually happened. "The renderer failed:" with nothing after
+           it, which is what an empty $out produces, is useless at 11pm. */
+        $tail = trim(implode(' | ', array_slice($out, -3)));
         prop_rmdir($work);
-        return [null, 'the renderer failed: ' . trim(implode(' ', array_slice($out, -3)))];
+        return [null, 'the renderer failed (exit ' . $rc . ')' .
+                      ($tail !== '' ? ': ' . $tail : ' with no output')];
     }
 
     /* Signature fields. If this step fails the PDF is still correct, just not
@@ -132,10 +144,14 @@ function prop_generate(PDO $pdo, array $lead, array $p): array {
     $signed = $work . '/signed.pdf';
     $warn = null;
     if (is_file(sign_fields_script())) {
-        exec('python3 ' . escapeshellarg(sign_fields_script()) . ' ' .
-             escapeshellarg($pdf) . ' -o ' . escapeshellarg($signed) . ' -q 2>&1', $so, $src2);
+        // pypdf lives in ~/.local for this account; LiteSpeed's HOME is not that.
+        exec('HOME=' . escapeshellarg(crm_home()) .
+             ' PYTHONPATH=' . escapeshellarg(crm_home() . '/.local/lib/python3.6/site-packages') .
+             ' python3 ' . escapeshellarg(sign_fields_script()) . ' ' .
+             escapeshellarg($pdf) . ' -o ' . escapeshellarg($signed) . ' -q 2>&1', $so, $rc2);
         if (!is_file($signed)) {
-            $warn = 'signature fields could not be added';
+            $warn = 'signature fields could not be added: ' .
+                    trim(implode(' | ', array_slice($so, -2)));
             $signed = $pdf;
         }
     } else {
