@@ -3,6 +3,7 @@ require_once __DIR__ . '/lib/auth.php';
 require_once __DIR__ . '/lib/google.php';
 require_once __DIR__ . '/lib/mailer.php';
 require_once __DIR__ . '/lib/templates.php';
+require_once __DIR__ . '/lib/documents.php';
 require_once __DIR__ . '/lib/trello.php';
 require_auth();
 
@@ -10,7 +11,11 @@ $a = $_GET['a'] ?? '';
 $isWrite = $_SERVER['REQUEST_METHOD'] === 'POST';
 if ($isWrite) csrf_check();
 
-$in = $isWrite ? (json_decode(file_get_contents('php://input'), true) ?: []) : $_GET;
+/* Every write is a JSON body except a file upload, which has to be multipart —
+ * php://input is empty once PHP has parsed the parts, so read $_POST there. */
+$isUpload = $isWrite && str_starts_with($_SERVER['CONTENT_TYPE'] ?? '', 'multipart/form-data');
+$in = $isUpload ? $_POST
+    : ($isWrite ? (json_decode(file_get_contents('php://input'), true) ?: []) : $_GET);
 $pdo = db();
 $now = time();
 
@@ -183,6 +188,7 @@ case 'lead': {
     $ev->execute([$l['id']]);
     $l['events'] = $ev->fetchAll();
     $l['links']  = lead_links($l, $l['acts']);
+    $l['documents'] = doc_list($pdo, $l['id']);
     $l['email_guess'] = $l['email'] === '' ? email_from_notes($l['acts']) : null;
     json_out($l);
 }
@@ -459,10 +465,22 @@ case 'email': {
     }
     if ($subject === '' || $body === '') json_out(['error' => 'subject and body required'], 400);
 
-    // Only ids in the registry resolve to a file, so nothing off disk can be
-    // named from the outside.
-    $attach = $tplId !== '' ? tpl_attachments($tplId) : [];
-    if ($tplId !== '' && !$attach) json_out(['error' => 'unknown template'], 400);
+    /* Two kinds of attachment, and never both. A template is generic collateral
+       resolved from the registry; a document belongs to this lead and is
+       resolved by id scoped to this lead, so neither can name a path from the
+       outside and neither can reach another client's file. */
+    $docId = trim((string)($in['document'] ?? ''));
+    if ($tplId !== '' && $docId !== '') {
+        json_out(['error' => 'attach a template or a document, not both'], 400);
+    }
+    $attach = [];
+    if ($tplId !== '') {
+        $attach = tpl_attachments($tplId);
+        if (!$attach) json_out(['error' => 'unknown template'], 400);
+    } elseif ($docId !== '') {
+        $attach = doc_attachments($pdo, $docId, $id);
+        if (!$attach) json_out(['error' => 'that document is not on this lead'], 400);
+    }
 
     [$sent, $info] = send_mail($lead['email'], $subject, $body, cfg('smtp_from'), $attach);
     if (!$sent) json_out(['error' => 'send failed: ' . $info], 502);
@@ -470,9 +488,43 @@ case 'email': {
     $note = 'Emailed ' . $lead['email'] . ' — ' . $subject;
     if ($attach) $note .= ' (attached ' . $attach[0]['name'] . ')';
     log_act($pdo, $id, 'email', $note);
+    // A document's whole point is knowing when it went out and to whom.
+    if ($docId !== '') {
+        $pdo->prepare("UPDATE documents SET sent_at=? WHERE id=?")->execute([$now, $docId]);
+    }
     touch_lead($pdo, $id);
     json_out(['ok' => true, 'to' => $lead['email'],
               'attached' => $attach ? $attach[0]['name'] : null]);
+}
+
+/* Documents held against one lead. The list rides along with the lead record
+   too, but the email sheet asks for it directly after an upload. */
+case 'docs': {
+    $id = (string)($in['id'] ?? '');
+    if (!lead_row($pdo, $id)) json_out(['error' => 'not found'], 404);
+    json_out(['documents' => doc_list($pdo, $id)]);
+}
+
+case 'upload_doc': {
+    $id = (string)($in['id'] ?? '');
+    if (!lead_row($pdo, $id)) json_out(['error' => 'not found'], 404);
+    if (empty($_FILES['file'])) json_out(['error' => 'no file received'], 400);
+
+    [$doc, $err] = doc_store($pdo, $id, $_FILES['file']);
+    if ($err) json_out(['error' => $err], 400);
+
+    log_act($pdo, $id, 'note', 'Document added — ' . $doc['name']);
+    touch_lead($pdo, $id);
+    json_out(['ok' => true, 'document' => $doc, 'documents' => doc_list($pdo, $id)]);
+}
+
+case 'delete_doc': {
+    $docId = (string)($in['document'] ?? '');
+    $doc = doc_get($pdo, $docId);
+    if (!$doc) json_out(['error' => 'not found'], 404);
+    doc_delete($pdo, $doc);
+    log_act($pdo, $doc['lead_id'], 'note', 'Document removed — ' . $doc['name']);
+    json_out(['ok' => true, 'documents' => doc_list($pdo, $doc['lead_id'])]);
 }
 
 /* Dashboard numbers. One query set, computed server-side so the client stays

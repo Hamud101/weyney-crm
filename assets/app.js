@@ -548,6 +548,7 @@
       '</div>' +
       '<div class="qright">' +
         whoPanel(l) +
+        docsPanel(l) +
         '<div class="notebox">' +
           '<div class="sect">Log what happened</div>' +
           '<input id="nb-contact" class="nbfield" placeholder="Who did you speak to?" value="' + esc(l.contact) + '">' +
@@ -558,6 +559,34 @@
         '</div>' +
         helpPanel(l) +
       '</div></div></div>';
+  }
+
+  /* Documents held for this client: the proposal you sent, the agreement that
+     came back. Kept on the record rather than in the shared attachments folder,
+     because each one belongs to exactly one lead. */
+  function docsPanel(l) {
+    var docs = l.documents || [];
+    return '<div class="docs">' +
+      '<div class="sect">Documents' +
+        '<span class="hinttxt">— PDF, PNG or JPEG, up to 20 MB</span></div>' +
+      (docs.length
+        ? '<div class="doclist">' + docs.map(function (d) {
+            return '<div class="docrow">' +
+              '<a class="docname" href="/crm/doc.php?id=' + esc(d.id) + '" target="_blank" ' +
+                'rel="noopener" title="Open this document">' + esc(d.name) + '</a>' +
+              '<span class="docmeta">' + docSize(d.size) +
+                (d.sent_at ? ' · sent ' + stamp(d.sent_at) : ' · not sent') + '</span>' +
+              '<a class="docdl" href="/crm/doc.php?id=' + esc(d.id) + '&dl=1" ' +
+                'title="Download">↓</a>' +
+              '<button class="docdel" data-docdel="' + esc(d.id) + '" ' +
+                'title="Remove this document">×</button>' +
+              '</div>';
+          }).join('') + '</div>'
+        : '<p class="hint">Nothing on file yet.</p>') +
+      '<label class="docadd">' +
+        '<input type="file" id="doc-file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg">' +
+        '<span>+ Add a document</span></label>' +
+      '</div>';
   }
 
   /* Clients are the ones who signed — nothing else. Cards, not rows: a handful
@@ -811,7 +840,7 @@
       var l = S.sheet.lead;
       return '<div class="sheet-bg" data-close="1"><div class="sheet email">' +
         '<h3>Email</h3><div class="who">' + esc(l.name) + ' · ' + esc(l.email) + '</div>' +
-        tplPicker() +
+        tplPicker() + docPicker() +
         '<label>Subject</label><input id="em-subj" value="' + esc(S.sheet.subj || '') + '">' +
         '<label>Message</label><textarea id="em-body" rows="8">' + esc(S.sheet.body || '') + '</textarea>' +
         attachLine() +
@@ -964,10 +993,18 @@
      or a company for a prospect. */
   function emailSheet(lead, from) {
     var s = { lead: lead, kind: 'email', from: from, tpl: '', tpls: null,
+              doc: '', docs: (lead.documents || []).slice(),
               subj: 'Quick question about ' + lead.name, body: '' };
     api('templates', null, { id: lead.id }).then(function (r) {
       if (S.sheet !== s) return;          // closed, or another sheet took over
       s.tpls = (r && r.templates) || [];
+      render();
+    });
+    /* The call queue's lead objects don't carry documents; the detail view's
+       do. Fetch either way so the sheet is the same from both. */
+    api('docs', null, { id: lead.id }).then(function (r) {
+      if (S.sheet !== s) return;
+      s.docs = (r && r.documents) || [];
       render();
     });
     return s;
@@ -981,7 +1018,7 @@
     var tpls = S.sheet.tpls;
     if (!tpls || !tpls.length) return '';
     return '<label>Template</label><div class="tpls">' +
-      '<button class="tpl' + (S.sheet.tpl ? '' : ' on') + '" data-tpl="">Blank' +
+      '<button class="tpl' + (S.sheet.tpl || S.sheet.doc ? '' : ' on') + '" data-tpl="">Blank' +
         '<span>Write it yourself — nothing attached</span></button>' +
       tpls.map(function (t) {
         return '<button class="tpl' + (S.sheet.tpl === t.id ? ' on' : '') +
@@ -989,9 +1026,44 @@
           '<span>' + esc(t.blurb) + '</span></button>';
       }).join('') + '</div>';
   }
+
+  /* This lead's own documents — the proposal, the signed agreement. Separate
+     from templates because they are not interchangeable: a template is the same
+     PDF for everyone, one of these belongs to this client only. Picking one
+     clears the template, since the server takes one attachment or the other. */
+  function docPicker() {
+    var docs = S.sheet.docs || [];
+    if (!docs.length) {
+      return '<label>Attach a document</label>' +
+        '<p class="hint">Nothing on file for ' + esc(S.sheet.lead.name) + ' yet — ' +
+        'add one from their record, under Documents.</p>';
+    }
+    return '<label>Attach a document <span class="opt">— on file for this client</span></label>' +
+      '<div class="tpls">' + docs.map(function (d) {
+        return '<button class="tpl' + (S.sheet.doc === d.id ? ' on' : '') +
+          '" data-doc="' + esc(d.id) + '">' + esc(d.name) +
+          '<span>' + docSize(d.size) +
+          (d.sent_at ? ' · already sent ' + stamp(d.sent_at) : ' · not sent yet') +
+          '</span></button>';
+      }).join('') + '</div>';
+  }
+  function docSize(n) {
+    n = +n || 0;
+    return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB'
+         : n >= 1024    ? Math.round(n / 1024) + ' KB' : n + ' B';
+  }
+
   /* What is going out with the message, said plainly — a PDF the sender can't
      see in the box is worth spelling out. */
   function attachLine() {
+    if (S.sheet.doc) {
+      var d = null;
+      (S.sheet.docs || []).forEach(function (x) { if (x.id === S.sheet.doc) d = x; });
+      return d ? '<div class="attach">Attaching <b>' + esc(d.name) + '</b>' +
+        (d.name !== d.send_name
+          ? ' <span class="opt">— sent as ' + esc(d.send_name) + '</span>'
+          : '') + '</div>' : '';
+    }
     var t = S.sheet.tpl ? tplFor(S.sheet.tpl) : null;
     if (!t) return '';
     return t.ready
@@ -1169,6 +1241,35 @@
     app.querySelectorAll('[data-demail]').forEach(function (el) {
       el.onclick = function () { S.sheet = emailSheet(S.detail, 'detail'); render(); };
     });
+    /* Upload goes as multipart, so it cannot use api() — that always sends
+       JSON. The CSRF header is the same either way. */
+    var df = document.getElementById('doc-file');
+    if (df) df.onchange = function () {
+      var f = df.files && df.files[0];
+      if (!f) return;
+      var fd = new FormData();
+      fd.append('id', S.detail.id);
+      fd.append('file', f);
+      toast('Uploading ' + f.name + '…');
+      fetch('/crm/api.php?a=upload_doc', {
+        method: 'POST', headers: { 'X-CSRF': CSRF }, body: fd
+      }).then(function (r) { return r.json(); }).then(function (r) {
+        if (r.error) return toast(r.error);
+        toast('Added ' + r.document.name);
+        S.detail.documents = r.documents;
+        render();
+      }).catch(function (e) { toast('Upload failed — ' + e.message); });
+    };
+    app.querySelectorAll('[data-docdel]').forEach(function (el) {
+      el.onclick = function () {
+        api('delete_doc', { document: el.dataset.docdel }).then(function (r) {
+          if (r.error) return toast(r.error);
+          toast('Removed');
+          S.detail.documents = r.documents;
+          render();
+        });
+      };
+    });
     app.querySelectorAll('[data-dnote]').forEach(function (el) {
       el.onclick = function () {
         var body = (document.getElementById('nb').value || '').trim();
@@ -1280,8 +1381,24 @@
       el.onclick = function () {
         var t = el.dataset.tpl ? tplFor(el.dataset.tpl) : null;
         S.sheet.tpl  = t ? t.id : '';
+        S.sheet.doc  = '';                  // one attachment, not both
         S.sheet.subj = t ? t.subject : 'Quick question about ' + S.sheet.lead.name;
         S.sheet.body = t ? t.body : '';
+        render();
+      };
+    });
+    /* Picking a document keeps whatever is already typed — unlike a template it
+       carries no wording of its own, and the covering note is usually the part
+       worth keeping. Clicking the chosen one again clears it. */
+    document.querySelectorAll('[data-doc]').forEach(function (el) {
+      el.onclick = function () {
+        var id = el.dataset.doc;
+        S.sheet.doc = (S.sheet.doc === id) ? '' : id;
+        if (S.sheet.doc) S.sheet.tpl = '';
+        var subj = document.getElementById('em-subj');
+        var body = document.getElementById('em-body');
+        if (subj) S.sheet.subj = subj.value;
+        if (body) S.sheet.body = body.value;
         render();
       };
     });
@@ -1367,16 +1484,24 @@
     });
   }
   function doEmail() {
-    var l = S.sheet.lead;
+    var l = S.sheet.lead, from = S.sheet.from;
     var t = S.sheet.tpl ? tplFor(S.sheet.tpl) : null;
     if (t && !t.ready) return toast('That PDF is missing on the server');
     api('email', { id: l.id, subject: document.getElementById('em-subj').value,
                    body: document.getElementById('em-body').value,
-                   template: S.sheet.tpl || '' })
+                   template: S.sheet.tpl || '',
+                   document: S.sheet.doc || '' })
       .then(function (r) {
         if (r.error) return toast(r.error);
-        toast(r.attached ? 'Sent to ' + r.to + ' with the PDF' : 'Sent to ' + r.to);
-        S.sheet = null; return loadQueue().then(render);
+        toast(r.attached ? 'Sent to ' + r.to + ' with ' + r.attached : 'Sent to ' + r.to);
+        S.sheet = null;
+        /* Sending from a record has to refresh that record — the log gained an
+           entry and the document now has a sent date. The queue reload was
+           always wrong here; it just wasn't visible until documents existed. */
+        if (from === 'detail') {
+          return api('lead', null, { id: l.id }).then(function (x) { S.detail = x; render(); });
+        }
+        return loadQueue().then(render);
       });
   }
 

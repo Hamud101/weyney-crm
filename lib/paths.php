@@ -37,3 +37,18 @@ function crm_data_dir(): string {
     if (!is_dir($dir)) @mkdir($dir, 0700, true);
     return $dir;
 }
+
+/**
+ * Where per-lead documents live — a signed agreement, an invoice, whatever was
+ * actually sent to that client.
+ *
+ * Beside the database, i.e. OUTSIDE the web root, and 0700. These are client
+ * contracts: they must never be fetchable by guessing a URL, which is exactly
+ * what would happen if they sat in attachments/ with the generic collateral.
+ * Reaching one always goes through doc.php, which checks the session first.
+ */
+function crm_docs_dir(): string {
+    $dir = crm_data_dir() . '/docs';
+    if (!is_dir($dir)) @mkdir($dir, 0700, true);
+    return $dir;
+}

@@ -145,4 +145,32 @@ function migrate(PDO $pdo): void {
         $pdo->exec("INSERT OR REPLACE INTO schema_meta (k,v) VALUES ('version','5')");
         $cur = 5;
     }
+
+    if ($cur < 6) {
+        /* Per-lead documents — the signed agreement, an invoice, anything that
+           belongs to ONE client rather than to every prospect. lib/templates.php
+           stays what it is: a registry of generic collateral. A proposal is not
+           collateral; it carries a company name, agreed prices and a date, and
+           putting one in the shared attachments folder would both misfile it and
+           publish it under the web root.
+
+           Only the row lives here. The bytes sit in crm_docs_dir(), named by
+           digest so nothing user-supplied ever reaches the filesystem. */
+        $pdo->exec("
+        CREATE TABLE documents (
+            id         TEXT PRIMARY KEY,
+            lead_id    TEXT NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+            name       TEXT NOT NULL,             -- original filename, for display
+            send_name  TEXT NOT NULL,             -- ASCII filename used on the wire
+            stored     TEXT NOT NULL,             -- <sha256>.<ext>, relative to docs dir
+            mime       TEXT NOT NULL DEFAULT 'application/pdf',
+            size       INTEGER NOT NULL,
+            sha256     TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            sent_at    INTEGER DEFAULT NULL       -- last time it went out by email
+        )");
+        $pdo->exec("CREATE INDEX idx_docs_lead ON documents(lead_id, created_at DESC)");
+        $pdo->exec("INSERT OR REPLACE INTO schema_meta (k,v) VALUES ('version','6')");
+        $cur = 6;
+    }
 }
