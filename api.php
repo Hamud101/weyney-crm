@@ -497,6 +497,54 @@ case 'email': {
               'attached' => $attach ? $attach[0]['name'] : null]);
 }
 
+/* The agreed package for one lead. Written whole — the sheet always sends the
+   complete selection, so there is no partial-update case to get wrong. */
+case 'save_proposal': {
+    $id = (string)($in['id'] ?? '');
+    if (!lead_row($pdo, $id)) json_out(['error' => 'not found'], 404);
+
+    $num = function ($v) { return max(0, (int)round((float)$v)); };
+    $p = $in['proposal'] ?? [];
+
+    $addons = [];
+    foreach ((array)($p['addons'] ?? []) as $a) {
+        $label = trim((string)($a['label'] ?? ''));
+        if ($label === '') continue;                       // a blank row is not a line
+        $addons[] = [
+            'label'  => mb_substr($label, 0, 80),
+            'amount' => $num($a['amount'] ?? 0),
+            'kind'   => ($a['kind'] ?? 'once') === 'monthly' ? 'monthly' : 'once',
+        ];
+    }
+
+    $clean = [
+        'tier'        => in_array($p['tier'] ?? '', ['foundation','referral','growth','custom'], true)
+                         ? $p['tier'] : 'custom',
+        'setup'       => $num($p['setup'] ?? 0),
+        'monthly'     => $num($p['monthly'] ?? 0),
+        'term_months' => max(1, min(60, (int)($p['term_months'] ?? 12))),
+        'prepaid'     => !empty($p['prepaid']),
+        'addons'      => $addons,
+        'notes'       => mb_substr(trim((string)($p['notes'] ?? '')), 0, 2000),
+        'updated_at'  => $now,
+    ];
+
+    $pdo->prepare("UPDATE leads SET proposal=?, updated_at=? WHERE id=?")
+        ->execute([json_encode($clean, JSON_UNESCAPED_SLASHES), $now, $id]);
+
+    $total = $clean['setup']
+           + ($clean['prepaid'] ? $clean['monthly'] * $clean['term_months'] : $clean['monthly']);
+    foreach ($clean['addons'] as $a) if ($a['kind'] === 'once') $total += $a['amount'];
+
+    log_act($pdo, $id, 'note', 'Proposal set — ' . ucfirst($clean['tier']) .
+        ', $' . number_format($clean['setup']) . ' setup, $' .
+        number_format($clean['monthly']) . '/mo' .
+        ($clean['prepaid'] ? ' prepaid ' . $clean['term_months'] . ' months' : '') .
+        ' — due now $' . number_format($total));
+
+    json_out(['ok' => true, 'proposal' => $clean, 'total' => $total]);
+}
+
 /* Documents held against one lead. The list rides along with the lead record
    too, but the email sheet asks for it directly after an upload. */
 case 'docs': {

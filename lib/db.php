@@ -173,4 +173,19 @@ function migrate(PDO $pdo): void {
         $pdo->exec("INSERT OR REPLACE INTO schema_meta (k,v) VALUES ('version','6')");
         $cur = 6;
     }
+
+    if ($cur < 7) {
+        /* What this client actually agreed to: tier, setup fee, monthly, term,
+           add-ons. JSON in one column because there is exactly one live proposal
+           per lead and nothing queries inside it — a table would buy joins we
+           would never use.
+
+           Amounts are stored, not looked up. The catalogue lists Foundation at
+           $75/month; Caring Hands agreed $40. The tier picks the starting
+           numbers and then every one of them is editable, because the deal is
+           whatever was actually said on the call. */
+        $pdo->exec("ALTER TABLE leads ADD COLUMN proposal TEXT NOT NULL DEFAULT ''");
+        $pdo->exec("INSERT OR REPLACE INTO schema_meta (k,v) VALUES ('version','7')");
+        $cur = 7;
+    }
 }

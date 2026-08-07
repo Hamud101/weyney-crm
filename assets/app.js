@@ -526,7 +526,10 @@
         '<div class="qdial">' +
           '<button class="btn btn-p big" data-demail="1"' +
             (l.email ? '' : ' disabled title="No email on this lead"') + '>Email</button>' +
+          '<button class="btn big" data-dproposal="1" ' +
+            'title="Set the packages they agreed to">Proposal</button>' +
         '</div>' +
+        proposalPanel(l) +
         '<div class="sect" style="margin-top:20px">Pipeline stage</div>' +
         '<select id="d-stage" class="nbfield stagesel">' + stageOptions(l.stage) + '</select>' +
         '<div class="sect" style="margin-top:20px">Schedule</div>' +
@@ -559,6 +562,63 @@
         '</div>' +
         helpPanel(l) +
       '</div></div></div>';
+  }
+
+  /* The catalogue's three tiers. These set the STARTING numbers only — every
+     amount stays editable, because the agreed price is whatever was said on the
+     call. Caring Hands took Foundation at $40/month against a $75 list. */
+  var TIERS = {
+    foundation: { label:'Foundation',      setup:500,  monthly:75,
+                  blurb:'Website + hosting' },
+    referral:   { label:'Referral Engine', setup:1500, monthly:450,
+                  blurb:'Adds referral sheet, case-manager page, capacity updates, GBP' },
+    growth:     { label:'Growth Partner',  setup:2500, monthly:950,
+                  blurb:'Adds recruiting, multilingual, referral tracking' },
+    custom:     { label:'Custom',          setup:0,    monthly:0,
+                  blurb:'Set every number yourself' }
+  };
+
+  function readProposal(l) {
+    if (!l || !l.proposal) return null;
+    try { return JSON.parse(l.proposal); } catch (e) { return null; }
+  }
+  function money(n) { return '$' + (+n || 0).toLocaleString('en-US'); }
+
+  /* Due now = setup + (prepaid ? every month up front : the first month) + any
+     one-off add-ons. Mirrors the server so the sheet never shows a different
+     number from the one that gets logged. */
+  function proposalTotal(p) {
+    if (!p) return 0;
+    var t = (+p.setup || 0) +
+            (p.prepaid ? (+p.monthly || 0) * (+p.term_months || 12) : (+p.monthly || 0));
+    (p.addons || []).forEach(function (a) { if (a.kind !== 'monthly') t += (+a.amount || 0); });
+    return t;
+  }
+
+  /* On the record: what they agreed, at a glance. Absent until one is set, so
+     an untouched lead doesn't carry an empty pricing box. */
+  function proposalPanel(l) {
+    var p = readProposal(l);
+    if (!p) return '';
+    var tier = TIERS[p.tier] || TIERS.custom;
+    return '<div class="prop">' +
+      '<div class="sect">Agreed package ' +
+        '<span class="hinttxt">— tap Proposal to change</span></div>' +
+      '<div class="propbox">' +
+        '<div class="proptier">' + esc(tier.label) + '</div>' +
+        '<dl class="facts">' +
+          '<dt>Setup</dt><dd>' + money(p.setup) + ' one-time</dd>' +
+          '<dt>Monthly</dt><dd>' + money(p.monthly) +
+            (p.prepaid ? ' · ' + p.term_months + ' months prepaid' : ' · billed monthly') + '</dd>' +
+          (p.addons || []).map(function (a) {
+            return '<dt>' + esc(a.label) + '</dt><dd>' + money(a.amount) +
+                   (a.kind === 'monthly' ? '/mo' : ' one-time') + '</dd>';
+          }).join('') +
+        '</dl>' +
+        '<div class="proptotal"><span>Due now</span><b>' +
+          money(proposalTotal(p)) + '</b></div>' +
+        (p.notes ? '<p class="propnote">' + esc(p.notes) + '</p>' : '') +
+      '</div></div>';
   }
 
   /* Documents held for this client: the proposal you sent, the agreement that
@@ -835,6 +895,59 @@
         '<input id="nl-source" placeholder="Referral, inbound, event…">' +
         '<div class="acts"><button class="cancel" data-close="1">Cancel</button>' +
         '<button class="go" data-newsave="1">Add</button></div></div></div>';
+    }
+    if (k === 'proposal') {
+      var pl = S.sheet.lead, p = S.sheet.p;
+      var rows = (p.addons || []).map(function (a, i) {
+        return '<div class="addrow">' +
+          '<input class="ad-label" data-ai="' + i + '" placeholder="Extra line — e.g. Somali translation" ' +
+            'value="' + esc(a.label) + '">' +
+          '<input class="ad-amt" type="number" min="0" step="10" data-ai="' + i + '" ' +
+            'value="' + (+a.amount || 0) + '">' +
+          '<select class="ad-kind" data-ai="' + i + '">' +
+            '<option value="once"' + (a.kind !== 'monthly' ? ' selected' : '') + '>one-time</option>' +
+            '<option value="monthly"' + (a.kind === 'monthly' ? ' selected' : '') + '>per month</option>' +
+          '</select>' +
+          '<button class="addrm" data-adrm="' + i + '" title="Remove this line">×</button>' +
+          '</div>';
+      }).join('');
+
+      return '<div class="sheet-bg" data-close="1"><div class="sheet">' +
+        '<h3>Proposal</h3><div class="who">' + esc(pl.name) + '</div>' +
+        '<label>Package <span class="opt">— sets the starting numbers, all editable</span></label>' +
+        '<div class="tpls">' + Object.keys(TIERS).map(function (k2) {
+          var t = TIERS[k2];
+          return '<button class="tpl' + (p.tier === k2 ? ' on' : '') + '" data-tier="' + k2 + '">' +
+            esc(t.label) + '<span>' + esc(t.blurb) +
+            (k2 === 'custom' ? '' : ' · ' + money(t.setup) + ' + ' + money(t.monthly) + '/mo') +
+            '</span></button>';
+        }).join('') + '</div>' +
+        '<div class="pgrid">' +
+          '<div><label>Setup fee</label>' +
+            '<input id="pr-setup" type="number" min="0" step="50" value="' + (+p.setup || 0) + '"></div>' +
+          '<div><label>Monthly</label>' +
+            '<input id="pr-monthly" type="number" min="0" step="5" value="' + (+p.monthly || 0) + '"></div>' +
+        '</div>' +
+        '<label class="chk"><input type="checkbox" id="pr-prepaid"' +
+          (p.prepaid ? ' checked' : '') + '> Prepay the monthly fee up front</label>' +
+        (p.prepaid
+          ? '<div><label>Term <span class="opt">— months prepaid</span></label>' +
+            '<input id="pr-term" type="number" min="1" max="60" value="' +
+            (+p.term_months || 12) + '"></div>'
+          : '') +
+        '<label>Extra lines</label>' +
+        (rows ? '<div class="addlist">' + rows + '</div>' : '') +
+        '<button class="addmore" data-adnew="1">+ Add a line</button>' +
+        '<label>Notes <span class="opt">— what was agreed, in your words</span></label>' +
+        '<textarea id="pr-notes" rows="3" placeholder="Maintenance declined. Changes $50 per request, one free update every 6 months.">' +
+          esc(p.notes || '') + '</textarea>' +
+        '<div class="proptotal big"><span>Due now</span><b>' +
+          money(proposalTotal(p)) + '</b></div>' +
+        '<p class="hint">Saving records the package on this lead and logs it. ' +
+          'The signable PDF is still rendered on your laptop — this server has no ' +
+          'browser to print one.</p>' +
+        '<div class="acts"><button class="cancel" data-close="1">Cancel</button>' +
+        '<button class="go" data-prsave="1">Save proposal</button></div></div></div>';
     }
     if (k === 'email') {
       var l = S.sheet.lead;
@@ -1241,6 +1354,82 @@
     app.querySelectorAll('[data-demail]').forEach(function (el) {
       el.onclick = function () { S.sheet = emailSheet(S.detail, 'detail'); render(); };
     });
+    /* ---- proposal sheet ---- */
+    app.querySelectorAll('[data-dproposal]').forEach(function (el) {
+      el.onclick = function () {
+        var p = readProposal(S.detail) || { tier:'foundation', setup:TIERS.foundation.setup,
+          monthly:TIERS.foundation.monthly, term_months:12, prepaid:false, addons:[], notes:'' };
+        S.sheet = { kind:'proposal', lead:S.detail, p:p };
+        render();
+      };
+    });
+    /* Every field writes straight into S.sheet.p so the total recomputes and
+       nothing typed is lost when the sheet re-renders. */
+    function prRead() {
+      var p = S.sheet.p, g = function (id) { return document.getElementById(id); };
+      if (g('pr-setup'))   p.setup   = +g('pr-setup').value || 0;
+      if (g('pr-monthly')) p.monthly = +g('pr-monthly').value || 0;
+      if (g('pr-term'))    p.term_months = +g('pr-term').value || 12;
+      if (g('pr-notes'))   p.notes   = g('pr-notes').value;
+      (p.addons || []).forEach(function (a, i) {
+        var lab = document.querySelector('.ad-label[data-ai="' + i + '"]');
+        var amt = document.querySelector('.ad-amt[data-ai="' + i + '"]');
+        var knd = document.querySelector('.ad-kind[data-ai="' + i + '"]');
+        if (lab) a.label  = lab.value;
+        if (amt) a.amount = +amt.value || 0;
+        if (knd) a.kind   = knd.value;
+      });
+    }
+    app.querySelectorAll('[data-tier]').forEach(function (el) {
+      el.onclick = function () {
+        prRead();
+        var t = TIERS[el.dataset.tier];
+        S.sheet.p.tier = el.dataset.tier;
+        if (el.dataset.tier !== 'custom') {
+          S.sheet.p.setup = t.setup; S.sheet.p.monthly = t.monthly;
+        }
+        render();
+      };
+    });
+    ['pr-setup','pr-monthly','pr-term'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.oninput = function () { prRead(); render(); };
+    });
+    var prPre = document.getElementById('pr-prepaid');
+    if (prPre) prPre.onchange = function () {
+      prRead();
+      S.sheet.p.prepaid = prPre.checked;
+      if (S.sheet.p.prepaid && !S.sheet.p.term_months) S.sheet.p.term_months = 12;
+      render();
+    };
+    var adNew = document.querySelector('[data-adnew]');
+    if (adNew) adNew.onclick = function () {
+      prRead();
+      S.sheet.p.addons = (S.sheet.p.addons || []).concat([{ label:'', amount:0, kind:'once' }]);
+      render();
+    };
+    app.querySelectorAll('[data-adrm]').forEach(function (el) {
+      el.onclick = function () {
+        prRead();
+        S.sheet.p.addons.splice(+el.dataset.adrm, 1);
+        render();
+      };
+    });
+    app.querySelectorAll('.ad-amt,.ad-kind').forEach(function (el) {
+      el.oninput = function () { prRead(); render(); };
+    });
+    var prSave = document.querySelector('[data-prsave]');
+    if (prSave) prSave.onclick = function () {
+      prRead();
+      var leadId = S.sheet.lead.id;
+      api('save_proposal', { id: leadId, proposal: S.sheet.p }).then(function (r) {
+        if (r.error) return toast(r.error);
+        toast('Proposal saved — ' + money(r.total) + ' due now');
+        S.sheet = null;
+        return api('lead', null, { id: leadId }).then(function (x) { S.detail = x; render(); });
+      });
+    };
+
     /* Upload goes as multipart, so it cannot use api() — that always sends
        JSON. The CSRF header is the same either way. */
     var df = document.getElementById('doc-file');
