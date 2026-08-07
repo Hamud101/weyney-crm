@@ -171,6 +171,84 @@ function prop_generate(PDO $pdo, array $lead, array $p): array {
 }
 
 function prop_rmdir(string $dir): void {
-    foreach (glob($dir . '/*') ?: [] as $f) @unlink($f);
+    /* Chrome leaves a profile tree behind, so this has to recurse. */
+    foreach (glob($dir . '/*') ?: [] as $f) {
+        is_dir($f) ? prop_rmdir($f) : @unlink($f);
+    }
     @rmdir($dir);
+}
+
+/* ---------- the queue ----------
+ *
+ * The web app cannot render (see the schema v8 note). It queues here, and
+ * bin/render-worker.php — run from cron, where the address-space limit does not
+ * apply — does the work.
+ */
+
+/** One pending job per lead: clicking Generate twice should not render twice. */
+function prop_enqueue(PDO $pdo, string $leadId): array {
+    $open = $pdo->prepare("SELECT * FROM proposal_jobs
+                           WHERE lead_id=? AND status IN ('pending','running')
+                           ORDER BY id DESC LIMIT 1");
+    $open->execute([$leadId]);
+    if ($job = $open->fetch()) return $job;
+
+    $pdo->prepare("INSERT INTO proposal_jobs (lead_id,status,created_at) VALUES (?,'pending',?)")
+        ->execute([$leadId, time()]);
+    return prop_job($pdo, (int)$pdo->lastInsertId());
+}
+
+function prop_job(PDO $pdo, int $id): ?array {
+    $s = $pdo->prepare("SELECT * FROM proposal_jobs WHERE id=?");
+    $s->execute([$id]);
+    return $s->fetch() ?: null;
+}
+
+function prop_latest_job(PDO $pdo, string $leadId): ?array {
+    $s = $pdo->prepare("SELECT * FROM proposal_jobs WHERE lead_id=? ORDER BY id DESC LIMIT 1");
+    $s->execute([$leadId]);
+    return $s->fetch() ?: null;
+}
+
+/**
+ * Render everything queued. Called only from the CLI worker.
+ * Returns a line per job for the log.
+ */
+function prop_run_pending(PDO $pdo, int $limit = 5): array {
+    $out = [];
+    $jobs = $pdo->query("SELECT * FROM proposal_jobs WHERE status='pending'
+                         ORDER BY id ASC LIMIT " . (int)$limit)->fetchAll();
+    foreach ($jobs as $job) {
+        $pdo->prepare("UPDATE proposal_jobs SET status='running', started_at=? WHERE id=?")
+            ->execute([time(), $job['id']]);
+
+        $lead = null;
+        $s = $pdo->prepare("SELECT * FROM leads WHERE id=?");
+        $s->execute([$job['lead_id']]);
+        $lead = $s->fetch() ?: null;
+
+        $p = $lead ? json_decode((string)$lead['proposal'], true) : null;
+        if (!$lead) {
+            $err = 'the lead no longer exists';
+        } elseif (!is_array($p) || !($p['lines'] ?? [])) {
+            $err = 'no packages are selected on this lead';
+        } else {
+            [$made, $err] = prop_generate($pdo, $lead, $p);
+        }
+
+        if (!empty($err)) {
+            $pdo->prepare("UPDATE proposal_jobs SET status='failed', error=?, done_at=? WHERE id=?")
+                ->execute([$err, time(), $job['id']]);
+            $out[] = "job {$job['id']} FAILED: $err";
+            continue;
+        }
+        $pdo->prepare("UPDATE proposal_jobs SET status='done', doc_id=?, done_at=? WHERE id=?")
+            ->execute([$made['doc']['id'], time(), $job['id']]);
+        $pdo->prepare("INSERT INTO activities (lead_id,ts,type,body) VALUES (?,?,?,?)")
+            ->execute([$lead['id'], time(), 'note',
+                       'Proposal PDF generated — ' . $made['doc']['name']]);
+        $out[] = "job {$job['id']} ok: {$made['doc']['name']}" .
+                 ($made['warning'] ? " (warning: {$made['warning']})" : '');
+    }
+    return $out;
 }

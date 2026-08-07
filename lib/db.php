@@ -188,4 +188,31 @@ function migrate(PDO $pdo): void {
         $pdo->exec("INSERT OR REPLACE INTO schema_meta (k,v) VALUES ('version','7')");
         $cur = 7;
     }
+
+    if ($cur < 8) {
+        /* Proposal rendering has to happen outside the web request.
+           LiteSpeed runs PHP under a HARD 4 GB address-space limit (verified:
+           `ulimit -v` refuses to rise, hard == soft), and Chrome reserves more
+           than that for V8's cage before it draws anything — it dies with
+           SIGTRAP every time. From the CLI the limit is unlimited and the same
+           render takes 0.36s. So the web app queues, and a cron worker renders.
+
+           Keeping this as a table rather than a flag on leads means a failure
+           has somewhere to put its reason. */
+        $pdo->exec("
+        CREATE TABLE proposal_jobs (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            lead_id    TEXT NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+            status     TEXT NOT NULL DEFAULT 'pending',  -- pending|running|done|failed
+            error      TEXT NOT NULL DEFAULT '',
+            doc_id     TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL,
+            started_at INTEGER,
+            done_at    INTEGER
+        )");
+        $pdo->exec("CREATE INDEX idx_pjob_status ON proposal_jobs(status, id)");
+        $pdo->exec("CREATE INDEX idx_pjob_lead ON proposal_jobs(lead_id, id DESC)");
+        $pdo->exec("INSERT OR REPLACE INTO schema_meta (k,v) VALUES ('version','8')");
+        $cur = 8;
+    }
 }

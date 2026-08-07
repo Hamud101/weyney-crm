@@ -567,13 +567,22 @@ case 'generate_proposal': {
         json_out(['error' => 'set the packages first'], 400);
     }
 
-    [$made, $err] = prop_generate($pdo, $lead, $p);
-    if ($err) json_out(['error' => $err], 500);
+    /* Queued, not rendered here. Chrome cannot start inside a LiteSpeed request
+       on this host — see the schema v8 note — so bin/render-worker.php does it
+       from cron, where the address-space limit does not apply. */
+    $job = prop_enqueue($pdo, $id);
+    json_out(['ok' => true, 'job' => $job]);
+}
 
-    log_act($pdo, $id, 'note', 'Proposal PDF generated — ' . $made['doc']['name']);
-    touch_lead($pdo, $id);
-    json_out(['ok' => true, 'document' => $made['doc'],
-              'warning' => $made['warning'],
+/* Poll for a queued render. The sheet asks every couple of seconds until the
+   job is done or failed. */
+case 'proposal_job': {
+    $id = (string)($in['id'] ?? '');
+    if (!lead_row($pdo, $id)) json_out(['error' => 'not found'], 404);
+    $job = prop_latest_job($pdo, $id);
+    $doc = ($job && $job['status'] === 'done' && $job['doc_id'])
+         ? doc_get($pdo, $job['doc_id']) : null;
+    json_out(['job' => $job, 'document' => $doc,
               'documents' => doc_list($pdo, $id)]);
 }
 

@@ -605,6 +605,38 @@
     try { return JSON.parse(l.proposal); } catch (e) { return null; }
   }
   function money(n) { return '$' + (+n || 0).toLocaleString('en-US'); }
+  /* The render is queued for a cron worker, so the sheet waits rather than
+     getting an answer back from the click. Two seconds apart, giving up after
+     about two minutes — long enough for a once-a-minute cron plus the render,
+     short enough that a broken worker is obvious instead of silent. */
+  function pollProposal(leadId, tries) {
+    if (!S.sheet || S.sheet.kind !== 'proposal' || !S.sheet.building) return;
+    if (tries > 60) {
+      S.sheet.building = false;
+      S.sheet.buildErr = 'Nothing came back after two minutes. Is the render ' +
+                         'worker scheduled in hPanel?';
+      return render();
+    }
+    api('proposal_job', null, { id: leadId }).then(function (r) {
+      if (!S.sheet || S.sheet.kind !== 'proposal') return;
+      var j = r.job;
+      if (j && j.status === 'done' && r.document) {
+        S.sheet.building = false;
+        S.sheet.madeDoc = r.document;
+        toast('Proposal ready');
+        render();
+        return api('lead', null, { id: leadId })
+                 .then(function (x) { S.detail = x; render(); });
+      }
+      if (j && j.status === 'failed') {
+        S.sheet.building = false;
+        S.sheet.buildErr = j.error || 'the render failed';
+        return render();
+      }
+      setTimeout(function () { pollProposal(leadId, tries + 1); }, 2000);
+    });
+  }
+
   function todayISO() {
     var d = new Date();
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
@@ -984,7 +1016,12 @@
           money(proposalTotal(p)) + '</b></div>' +
         (mo && !p.prepaid
           ? '<p class="hint">Then ' + money(mo) + ' per month.</p>' : '') +
-        (doc
+        (S.sheet.building
+          ? '<div class="attach">Building the PDF… the renderer runs on a ' +
+            'schedule, so this takes up to a minute.</div>'
+          : S.sheet.buildErr
+          ? '<div class="attach missing">' + esc(S.sheet.buildErr) + '</div>'
+          : doc
           ? '<div class="attach">Generated <b>' + esc(doc.name) + '</b> — ' +
             'it is on the record and in the email sheet. ' +
             '<a href="/crm/doc.php?id=' + esc(doc.id) + '" target="_blank" rel="noopener">Open it</a></div>'
@@ -993,8 +1030,10 @@
         '<div class="acts"><button class="cancel" data-close="1">Close</button>' +
         '<button class="btn" data-prsave="1">Save only</button>' +
         '<button class="go" data-prgen="1"' +
-          (!(p.lines || []).length ? ' disabled title="Tick at least one service"' : '') +
-          '>Save &amp; generate PDF</button></div></div></div>';
+          (!(p.lines || []).length || S.sheet.building
+            ? ' disabled title="Tick at least one service"' : '') +
+          '>' + (S.sheet.building ? 'Building…' : 'Save &amp; generate PDF') +
+          '</button></div></div></div>';
     }
     if (k === 'email') {
       var l = S.sheet.lead;
@@ -1479,17 +1518,14 @@
     var prGen = document.querySelector('[data-prgen]');
     if (prGen) prGen.onclick = function () {
       prGen.disabled = true;
-      toast('Building the PDF…');
       prSaveThen(function (leadId) {
         return api('generate_proposal', { id: leadId }).then(function (g) {
           if (g.error) { prGen.disabled = false; return toast(g.error); }
-          toast('Proposal ready — ' + g.document.name);
-          /* Stay on the sheet and show the link: the next thing wanted is
-             almost always to look at it before emailing it. */
-          if (S.sheet && S.sheet.kind === 'proposal') S.sheet.madeDoc = g.document;
-          return api('lead', null, { id: leadId }).then(function (x) {
-            S.detail = x; render();
-          });
+          if (S.sheet && S.sheet.kind === 'proposal') {
+            S.sheet.building = true; S.sheet.buildErr = null;
+          }
+          render();
+          pollProposal(leadId, 0);
         });
       });
     };
