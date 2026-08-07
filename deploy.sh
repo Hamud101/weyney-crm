@@ -17,7 +17,11 @@ DEST='domains/weyney.com/public_html/apps/crm'
 
 # Repo-only files that must never land in the web root. The attachment PDFs do
 # ship — the mailer reads them off disk — but their print sources do not.
-EXCLUDE='^(deploy\.sh|\.gitignore|README\.md|attachments/src/.*)$'
+#
+# CLAUDE.md is here because .htaccess only guards lib/ and sync.php: a plain .md
+# in the web root is served as-is, and this one documents the server paths, where
+# the secrets live and how the app is laid out.
+EXCLUDE='^(deploy\.sh|\.gitignore|README\.md|CLAUDE\.md|attachments/src/.*)$'
 
 DRY=""
 FORCE=""
