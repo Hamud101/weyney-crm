@@ -4,6 +4,7 @@ require_once __DIR__ . '/lib/google.php';
 require_once __DIR__ . '/lib/mailer.php';
 require_once __DIR__ . '/lib/templates.php';
 require_once __DIR__ . '/lib/documents.php';
+require_once __DIR__ . '/lib/proposal.php';
 require_once __DIR__ . '/lib/trello.php';
 require_auth();
 
@@ -506,25 +507,31 @@ case 'save_proposal': {
     $num = function ($v) { return max(0, (int)round((float)$v)); };
     $p = $in['proposal'] ?? [];
 
-    $addons = [];
-    foreach ((array)($p['addons'] ?? []) as $a) {
-        $label = trim((string)($a['label'] ?? ''));
-        if ($label === '') continue;                       // a blank row is not a line
-        $addons[] = [
+    /* One line per ticked service. The label and description are stored rather
+       than looked up: the catalogue will be edited over time, and a signed
+       agreement has to keep saying what it said the day it was sent. */
+    $lines = [];
+    foreach ((array)($p['lines'] ?? []) as $l) {
+        $label = trim((string)($l['label'] ?? ''));
+        if ($label === '') continue;
+        $lines[] = [
+            'id'     => preg_replace('/[^a-z0-9_-]/', '', (string)($l['id'] ?? '')),
             'label'  => mb_substr($label, 0, 80),
-            'amount' => $num($a['amount'] ?? 0),
-            'kind'   => ($a['kind'] ?? 'once') === 'monthly' ? 'monthly' : 'once',
+            'amount' => $num($l['amount'] ?? 0),
+            'kind'   => ($l['kind'] ?? 'once') === 'monthly' ? 'monthly' : 'once',
+            'desc'   => mb_substr(trim((string)($l['desc'] ?? $label)), 0, 400),
         ];
     }
 
+    $date = (string)($p['date'] ?? '');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) $date = date('Y-m-d');
+
     $clean = [
-        'tier'        => in_array($p['tier'] ?? '', ['foundation','referral','growth','custom'], true)
-                         ? $p['tier'] : 'custom',
-        'setup'       => $num($p['setup'] ?? 0),
-        'monthly'     => $num($p['monthly'] ?? 0),
+        'lines'       => $lines,
         'term_months' => max(1, min(60, (int)($p['term_months'] ?? 12))),
         'prepaid'     => !empty($p['prepaid']),
-        'addons'      => $addons,
+        'change_fee'  => $num($p['change_fee'] ?? 50),
+        'date'        => $date,
         'notes'       => mb_substr(trim((string)($p['notes'] ?? '')), 0, 2000),
         'updated_at'  => $now,
     ];
@@ -532,17 +539,42 @@ case 'save_proposal': {
     $pdo->prepare("UPDATE leads SET proposal=?, updated_at=? WHERE id=?")
         ->execute([json_encode($clean, JSON_UNESCAPED_SLASHES), $now, $id]);
 
-    $total = $clean['setup']
-           + ($clean['prepaid'] ? $clean['monthly'] * $clean['term_months'] : $clean['monthly']);
-    foreach ($clean['addons'] as $a) if ($a['kind'] === 'once') $total += $a['amount'];
+    // Same arithmetic as the sheet, so the figure logged is the figure shown.
+    $total = 0;
+    foreach ($lines as $l) {
+        $total += $l['kind'] === 'monthly'
+            ? ($clean['prepaid'] ? $l['amount'] * $clean['term_months'] : $l['amount'])
+            : $l['amount'];
+    }
 
-    log_act($pdo, $id, 'note', 'Proposal set — ' . ucfirst($clean['tier']) .
-        ', $' . number_format($clean['setup']) . ' setup, $' .
-        number_format($clean['monthly']) . '/mo' .
-        ($clean['prepaid'] ? ' prepaid ' . $clean['term_months'] . ' months' : '') .
-        ' — due now $' . number_format($total));
+    log_act($pdo, $id, 'note', 'Proposal set — ' .
+        (count($lines) ? implode(', ', array_column($lines, 'label')) : 'nothing selected') .
+        ' — due on signing $' . number_format($total));
 
     json_out(['ok' => true, 'proposal' => $clean, 'total' => $total]);
+}
+
+/* Build the signable agreement from the saved selection and put it on the lead.
+   Everything the operator chose is baked in; the only fillable fields left are
+   the three the client needs to sign. */
+case 'generate_proposal': {
+    $id = (string)($in['id'] ?? '');
+    $lead = lead_row($pdo, $id);
+    if (!$lead) json_out(['error' => 'not found'], 404);
+
+    $p = json_decode((string)$lead['proposal'], true);
+    if (!is_array($p) || !($p['lines'] ?? [])) {
+        json_out(['error' => 'set the packages first'], 400);
+    }
+
+    [$made, $err] = prop_generate($pdo, $lead, $p);
+    if ($err) json_out(['error' => $err], 500);
+
+    log_act($pdo, $id, 'note', 'Proposal PDF generated — ' . $made['doc']['name']);
+    touch_lead($pdo, $id);
+    json_out(['ok' => true, 'document' => $made['doc'],
+              'warning' => $made['warning'],
+              'documents' => doc_list($pdo, $id)]);
 }
 
 /* Documents held against one lead. The list rides along with the lead record

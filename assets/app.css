@@ -701,3 +701,18 @@ body.gate{display:grid;place-items:center;overflow:auto}
 .opp{font-size:15px}
 .phone.nonum{color:var(--faint);font-size:20px;font-weight:600}
 .lnk.instagram svg,.lnk.linkedin svg{opacity:.85}
+
+/* ---- Service picker: one tickable line per catalogue service ---- */
+.svclist{display:flex;flex-direction:column;gap:5px;margin-bottom:4px}
+.svc{display:grid;grid-template-columns:1fr 92px 108px;gap:8px;align-items:center;
+  padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface)}
+.svc.on{border-color:var(--accent);background:var(--s2)}
+.svchk{display:flex;align-items:center;gap:9px;margin:0;cursor:pointer;
+  font-size:13.5px;font-weight:650;letter-spacing:0;text-transform:none;color:var(--ink)}
+.svchk input{width:16px;height:16px;margin:0;accent-color:var(--accent);flex:none}
+.svc input.svamt,.svc select.svkind{margin:0;padding:7px 9px;font-size:12.5px}
+.svhint{grid-column:2 / -1;text-align:right;font-size:11.5px;color:var(--faint)}
+@media(max-width:560px){
+  .svc{grid-template-columns:1fr 1fr}
+  .svchk{grid-column:1 / -1}
+}

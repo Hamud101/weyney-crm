@@ -564,34 +564,70 @@
       '</div></div></div>';
   }
 
-  /* The catalogue's three tiers. These set the STARTING numbers only — every
-     amount stays editable, because the agreed price is whatever was said on the
-     call. Caring Hands took Foundation at $40/month against a $75 list. */
-  var TIERS = {
-    foundation: { label:'Foundation',      setup:500,  monthly:75,
-                  blurb:'Website + hosting' },
-    referral:   { label:'Referral Engine', setup:1500, monthly:450,
-                  blurb:'Adds referral sheet, case-manager page, capacity updates, GBP' },
-    growth:     { label:'Growth Partner',  setup:2500, monthly:950,
-                  blurb:'Adds recruiting, multilingual, referral tracking' },
-    custom:     { label:'Custom',          setup:0,    monthly:0,
-                  blurb:'Set every number yourself' }
-  };
+  /* The nine catalogue services, each tickable on its own. This replaced three
+     fixed tier buttons: a tier is a guess at what someone wants, and every real
+     deal so far has been a subset with its own price. Ticking is also what the
+     agreement needs — each checked line becomes a bullet in Section 1 and a fee
+     line in Section 3.
+
+     `amount` is a starting number from documents/service-catalogue-and-business-plan.md
+     and is editable on every line. `kind` is what the fee IS, not when it is
+     billed — prepaying twelve months of a monthly fee is a separate switch. */
+  var SERVICES = [
+    { id:'website',   label:'Website build',        amount:500, kind:'once',
+      desc:'Design and build a custom multi-page website — Home, About, Services and Contact — built around the Client’s existing logo and brand, with a contact form.' },
+    { id:'hosting',   label:'Hosting',              amount:75,  kind:'monthly',
+      desc:'Hosting the website on Weyney Media’s infrastructure, including uptime monitoring, regular backups, and SSL.' },
+    { id:'refsheet',  label:'Provider referral sheet', amount:0, kind:'once',
+      desc:'A one-page referral sheet, print and PDF, written for case managers.' },
+    { id:'refpage',   label:'Case-manager referral page', amount:0, kind:'monthly',
+      desc:'A /refer page built for referring professionals, kept separate from the main site.' },
+    { id:'capacity',  label:'Monthly capacity update', amount:0, kind:'monthly',
+      desc:'Current openings published where referrers can see them, updated monthly.' },
+    { id:'gbp',       label:'Google Business Profile', amount:0, kind:'monthly',
+      desc:'Setting up and maintaining the Google Business Profile panel.' },
+    { id:'recruiting',label:'Recruiting campaign',  amount:500, kind:'once',
+      desc:'Filling open clinical positions, run as a marketing campaign.' },
+    { id:'multiling', label:'Multilingual delivery',amount:350, kind:'once',
+      desc:'Site and print materials in the languages the Client’s families actually speak.' },
+    { id:'tracking',  label:'Referral source tracking', amount:0, kind:'monthly',
+      desc:'A record of where referrals come from and what happens to them.' },
+    { id:'documents', label:'Documents and handbooks', amount:600, kind:'once',
+      desc:'Design and layout for material the Client is required to produce anyway.' }
+  ];
+  function serviceById(id) {
+    for (var i = 0; i < SERVICES.length; i++) if (SERVICES[i].id === id) return SERVICES[i];
+    return null;
+  }
 
   function readProposal(l) {
     if (!l || !l.proposal) return null;
     try { return JSON.parse(l.proposal); } catch (e) { return null; }
   }
   function money(n) { return '$' + (+n || 0).toLocaleString('en-US'); }
+  function todayISO() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+           '-' + String(d.getDate()).padStart(2, '0');
+  }
 
-  /* Due now = setup + (prepaid ? every month up front : the first month) + any
-     one-off add-ons. Mirrors the server so the sheet never shows a different
-     number from the one that gets logged. */
+  /* Due on signing = every one-off line, plus the monthly lines either prepaid
+     for the whole term or just the first month. Mirrors the server exactly, so
+     the sheet can never show a figure the document contradicts. */
   function proposalTotal(p) {
     if (!p) return 0;
-    var t = (+p.setup || 0) +
-            (p.prepaid ? (+p.monthly || 0) * (+p.term_months || 12) : (+p.monthly || 0));
-    (p.addons || []).forEach(function (a) { if (a.kind !== 'monthly') t += (+a.amount || 0); });
+    var t = 0, term = +p.term_months || 12;
+    (p.lines || []).forEach(function (l) {
+      var a = +l.amount || 0;
+      t += l.kind === 'monthly' ? (p.prepaid ? a * term : a) : a;
+    });
+    return t;
+  }
+  function monthlyTotal(p) {
+    var t = 0;
+    ((p && p.lines) || []).forEach(function (l) {
+      if (l.kind === 'monthly') t += +l.amount || 0;
+    });
     return t;
   }
 
@@ -599,23 +635,20 @@
      an untouched lead doesn't carry an empty pricing box. */
   function proposalPanel(l) {
     var p = readProposal(l);
-    if (!p) return '';
-    var tier = TIERS[p.tier] || TIERS.custom;
+    if (!p || !(p.lines || []).length) return '';
     return '<div class="prop">' +
       '<div class="sect">Agreed package ' +
         '<span class="hinttxt">— tap Proposal to change</span></div>' +
       '<div class="propbox">' +
-        '<div class="proptier">' + esc(tier.label) + '</div>' +
         '<dl class="facts">' +
-          '<dt>Setup</dt><dd>' + money(p.setup) + ' one-time</dd>' +
-          '<dt>Monthly</dt><dd>' + money(p.monthly) +
-            (p.prepaid ? ' · ' + p.term_months + ' months prepaid' : ' · billed monthly') + '</dd>' +
-          (p.addons || []).map(function (a) {
-            return '<dt>' + esc(a.label) + '</dt><dd>' + money(a.amount) +
-                   (a.kind === 'monthly' ? '/mo' : ' one-time') + '</dd>';
+          (p.lines || []).map(function (li) {
+            return '<dt>' + esc(li.label) + '</dt><dd>' + money(li.amount) +
+                   (li.kind === 'monthly'
+                     ? '/mo' + (p.prepaid ? ' · ' + (p.term_months || 12) + ' mo prepaid' : '')
+                     : ' one-time') + '</dd>';
           }).join('') +
         '</dl>' +
-        '<div class="proptotal"><span>Due now</span><b>' +
+        '<div class="proptotal"><span>Due on signing</span><b>' +
           money(proposalTotal(p)) + '</b></div>' +
         (p.notes ? '<p class="propnote">' + esc(p.notes) + '</p>' : '') +
       '</div></div>';
@@ -898,56 +931,70 @@
     }
     if (k === 'proposal') {
       var pl = S.sheet.lead, p = S.sheet.p;
-      var rows = (p.addons || []).map(function (a, i) {
-        return '<div class="addrow">' +
-          '<input class="ad-label" data-ai="' + i + '" placeholder="Extra line — e.g. Somali translation" ' +
-            'value="' + esc(a.label) + '">' +
-          '<input class="ad-amt" type="number" min="0" step="10" data-ai="' + i + '" ' +
-            'value="' + (+a.amount || 0) + '">' +
-          '<select class="ad-kind" data-ai="' + i + '">' +
-            '<option value="once"' + (a.kind !== 'monthly' ? ' selected' : '') + '>one-time</option>' +
-            '<option value="monthly"' + (a.kind === 'monthly' ? ' selected' : '') + '>per month</option>' +
-          '</select>' +
-          '<button class="addrm" data-adrm="' + i + '" title="Remove this line">×</button>' +
+      var picked = {};
+      (p.lines || []).forEach(function (li) { picked[li.id] = li; });
+
+      /* One row per catalogue service. Ticking reveals its price and whether
+         that price is one-off or monthly — an unticked line shows nothing, so
+         the list stays readable at ten services. */
+      var list = SERVICES.map(function (s) {
+        var li = picked[s.id], on = !!li;
+        return '<div class="svc' + (on ? ' on' : '') + '">' +
+          '<label class="svchk"><input type="checkbox" data-svc="' + s.id + '"' +
+            (on ? ' checked' : '') + '><span>' + esc(s.label) + '</span></label>' +
+          (on
+            ? '<input class="svamt" type="number" min="0" step="10" data-svc="' + s.id + '" ' +
+                'value="' + (+li.amount || 0) + '">' +
+              '<select class="svkind" data-svc="' + s.id + '">' +
+                '<option value="once"' + (li.kind !== 'monthly' ? ' selected' : '') + '>one-time</option>' +
+                '<option value="monthly"' + (li.kind === 'monthly' ? ' selected' : '') + '>per month</option>' +
+              '</select>'
+            : '<span class="svhint">' + money(s.amount) +
+              (s.kind === 'monthly' ? '/mo' : '') + ' list</span>') +
           '</div>';
       }).join('');
 
+      var mo = monthlyTotal(p);
+      var doc = S.sheet.madeDoc;
+
       return '<div class="sheet-bg" data-close="1"><div class="sheet">' +
         '<h3>Proposal</h3><div class="who">' + esc(pl.name) + '</div>' +
-        '<label>Package <span class="opt">— sets the starting numbers, all editable</span></label>' +
-        '<div class="tpls">' + Object.keys(TIERS).map(function (k2) {
-          var t = TIERS[k2];
-          return '<button class="tpl' + (p.tier === k2 ? ' on' : '') + '" data-tier="' + k2 + '">' +
-            esc(t.label) + '<span>' + esc(t.blurb) +
-            (k2 === 'custom' ? '' : ' · ' + money(t.setup) + ' + ' + money(t.monthly) + '/mo') +
-            '</span></button>';
-        }).join('') + '</div>' +
-        '<div class="pgrid">' +
-          '<div><label>Setup fee</label>' +
-            '<input id="pr-setup" type="number" min="0" step="50" value="' + (+p.setup || 0) + '"></div>' +
-          '<div><label>Monthly</label>' +
-            '<input id="pr-monthly" type="number" min="0" step="5" value="' + (+p.monthly || 0) + '"></div>' +
-        '</div>' +
-        '<label class="chk"><input type="checkbox" id="pr-prepaid"' +
-          (p.prepaid ? ' checked' : '') + '> Prepay the monthly fee up front</label>' +
-        (p.prepaid
-          ? '<div><label>Term <span class="opt">— months prepaid</span></label>' +
-            '<input id="pr-term" type="number" min="1" max="60" value="' +
-            (+p.term_months || 12) + '"></div>'
+        '<label>What they are buying <span class="opt">— tick each one; every price is editable</span></label>' +
+        '<div class="svclist">' + list + '</div>' +
+        (mo
+          ? '<label class="chk"><input type="checkbox" id="pr-prepaid"' +
+              (p.prepaid ? ' checked' : '') + '> Prepay the monthly fees up front</label>' +
+            (p.prepaid
+              ? '<div><label>Term <span class="opt">— months prepaid</span></label>' +
+                '<input id="pr-term" type="number" min="1" max="60" value="' +
+                (+p.term_months || 12) + '"></div>'
+              : '')
           : '') +
-        '<label>Extra lines</label>' +
-        (rows ? '<div class="addlist">' + rows + '</div>' : '') +
-        '<button class="addmore" data-adnew="1">+ Add a line</button>' +
-        '<label>Notes <span class="opt">— what was agreed, in your words</span></label>' +
-        '<textarea id="pr-notes" rows="3" placeholder="Maintenance declined. Changes $50 per request, one free update every 6 months.">' +
+        '<div class="pgrid">' +
+          '<div><label>Change fee <span class="opt">— per request</span></label>' +
+            '<input id="pr-changefee" type="number" min="0" step="5" value="' +
+            (p.change_fee == null ? 50 : +p.change_fee) + '"></div>' +
+          '<div><label>Agreement date</label>' +
+            '<input id="pr-date" type="date" value="' + esc(p.date || todayISO()) + '"></div>' +
+        '</div>' +
+        '<label>Notes <span class="opt">— appears under the fees in the agreement</span></label>' +
+        '<textarea id="pr-notes" rows="3" placeholder="No monthly maintenance plan is included. Changes after launch are billed individually.">' +
           esc(p.notes || '') + '</textarea>' +
-        '<div class="proptotal big"><span>Due now</span><b>' +
+        '<div class="proptotal big"><span>Due on signing</span><b>' +
           money(proposalTotal(p)) + '</b></div>' +
-        '<p class="hint">Saving records the package on this lead and logs it. ' +
-          'The signable PDF is still rendered on your laptop — this server has no ' +
-          'browser to print one.</p>' +
-        '<div class="acts"><button class="cancel" data-close="1">Cancel</button>' +
-        '<button class="go" data-prsave="1">Save proposal</button></div></div></div>';
+        (mo && !p.prepaid
+          ? '<p class="hint">Then ' + money(mo) + ' per month.</p>' : '') +
+        (doc
+          ? '<div class="attach">Generated <b>' + esc(doc.name) + '</b> — ' +
+            'it is on the record and in the email sheet. ' +
+            '<a href="/crm/doc.php?id=' + esc(doc.id) + '" target="_blank" rel="noopener">Open it</a></div>'
+          : '<p class="hint">Generate builds the signable PDF with all of this filled ' +
+            'in and puts it on this lead, ready to email.</p>') +
+        '<div class="acts"><button class="cancel" data-close="1">Close</button>' +
+        '<button class="btn" data-prsave="1">Save only</button>' +
+        '<button class="go" data-prgen="1"' +
+          (!(p.lines || []).length ? ' disabled title="Tick at least one service"' : '') +
+          '>Save &amp; generate PDF</button></div></div></div>';
     }
     if (k === 'email') {
       var l = S.sheet.lead;
@@ -1357,44 +1404,54 @@
     /* ---- proposal sheet ---- */
     app.querySelectorAll('[data-dproposal]').forEach(function (el) {
       el.onclick = function () {
-        var p = readProposal(S.detail) || { tier:'foundation', setup:TIERS.foundation.setup,
-          monthly:TIERS.foundation.monthly, term_months:12, prepaid:false, addons:[], notes:'' };
-        S.sheet = { kind:'proposal', lead:S.detail, p:p };
+        var p = readProposal(S.detail) ||
+          { lines:[], term_months:12, prepaid:false, change_fee:50,
+            date:todayISO(), notes:'' };
+        S.sheet = { kind:'proposal', lead:S.detail, p:p, madeDoc:null };
         render();
       };
     });
-    /* Every field writes straight into S.sheet.p so the total recomputes and
-       nothing typed is lost when the sheet re-renders. */
+    /* Read every field back into S.sheet.p before any re-render, so the running
+       total is right and nothing typed is lost when a tick redraws the sheet. */
     function prRead() {
       var p = S.sheet.p, g = function (id) { return document.getElementById(id); };
-      if (g('pr-setup'))   p.setup   = +g('pr-setup').value || 0;
-      if (g('pr-monthly')) p.monthly = +g('pr-monthly').value || 0;
-      if (g('pr-term'))    p.term_months = +g('pr-term').value || 12;
-      if (g('pr-notes'))   p.notes   = g('pr-notes').value;
-      (p.addons || []).forEach(function (a, i) {
-        var lab = document.querySelector('.ad-label[data-ai="' + i + '"]');
-        var amt = document.querySelector('.ad-amt[data-ai="' + i + '"]');
-        var knd = document.querySelector('.ad-kind[data-ai="' + i + '"]');
-        if (lab) a.label  = lab.value;
-        if (amt) a.amount = +amt.value || 0;
-        if (knd) a.kind   = knd.value;
+      if (g('pr-term'))      p.term_months = +g('pr-term').value || 12;
+      if (g('pr-notes'))     p.notes       = g('pr-notes').value;
+      if (g('pr-changefee')) p.change_fee  = +g('pr-changefee').value || 0;
+      if (g('pr-date'))      p.date        = g('pr-date').value;
+      (p.lines || []).forEach(function (li) {
+        var amt = document.querySelector('.svamt[data-svc="' + li.id + '"]');
+        var knd = document.querySelector('.svkind[data-svc="' + li.id + '"]');
+        if (amt) li.amount = +amt.value || 0;
+        if (knd) li.kind   = knd.value;
       });
     }
-    app.querySelectorAll('[data-tier]').forEach(function (el) {
-      el.onclick = function () {
-        prRead();
-        var t = TIERS[el.dataset.tier];
-        S.sheet.p.tier = el.dataset.tier;
-        if (el.dataset.tier !== 'custom') {
-          S.sheet.p.setup = t.setup; S.sheet.p.monthly = t.monthly;
-        }
-        render();
-      };
+    app.querySelectorAll('[data-svc]').forEach(function (el) {
+      if (el.type === 'checkbox') {
+        el.onchange = function () {
+          prRead();
+          var p = S.sheet.p, id = el.dataset.svc;
+          if (el.checked) {
+            var s = serviceById(id);
+            /* Keep catalogue order however they are ticked — the agreement
+               reads website-then-hosting, not click order. */
+            p.lines = (p.lines || []).concat([
+              { id:s.id, label:s.label, amount:s.amount, kind:s.kind, desc:s.desc }
+            ]).sort(function (a, b) {
+              return SERVICES.indexOf(serviceById(a.id)) - SERVICES.indexOf(serviceById(b.id));
+            });
+          } else {
+            p.lines = (p.lines || []).filter(function (x) { return x.id !== id; });
+          }
+          render();
+        };
+      } else {
+        el.oninput  = function () { prRead(); render(); };
+        el.onchange = function () { prRead(); render(); };
+      }
     });
-    ['pr-setup','pr-monthly','pr-term'].forEach(function (id) {
-      var el = document.getElementById(id);
-      if (el) el.oninput = function () { prRead(); render(); };
-    });
+    var prTerm = document.getElementById('pr-term');
+    if (prTerm) prTerm.oninput = function () { prRead(); render(); };
     var prPre = document.getElementById('pr-prepaid');
     if (prPre) prPre.onchange = function () {
       prRead();
@@ -1402,31 +1459,38 @@
       if (S.sheet.p.prepaid && !S.sheet.p.term_months) S.sheet.p.term_months = 12;
       render();
     };
-    var adNew = document.querySelector('[data-adnew]');
-    if (adNew) adNew.onclick = function () {
-      prRead();
-      S.sheet.p.addons = (S.sheet.p.addons || []).concat([{ label:'', amount:0, kind:'once' }]);
-      render();
-    };
-    app.querySelectorAll('[data-adrm]').forEach(function (el) {
-      el.onclick = function () {
-        prRead();
-        S.sheet.p.addons.splice(+el.dataset.adrm, 1);
-        render();
-      };
-    });
-    app.querySelectorAll('.ad-amt,.ad-kind').forEach(function (el) {
-      el.oninput = function () { prRead(); render(); };
-    });
-    var prSave = document.querySelector('[data-prsave]');
-    if (prSave) prSave.onclick = function () {
+
+    function prSaveThen(next) {
       prRead();
       var leadId = S.sheet.lead.id;
-      api('save_proposal', { id: leadId, proposal: S.sheet.p }).then(function (r) {
-        if (r.error) return toast(r.error);
-        toast('Proposal saved — ' + money(r.total) + ' due now');
+      return api('save_proposal', { id: leadId, proposal: S.sheet.p }).then(function (r) {
+        if (r.error) { toast(r.error); return null; }
+        return next ? next(leadId, r) : r;
+      });
+    }
+    var prSave = document.querySelector('[data-prsave]');
+    if (prSave) prSave.onclick = function () {
+      prSaveThen(function (leadId, r) {
+        toast('Saved — ' + money(r.total) + ' due on signing');
         S.sheet = null;
         return api('lead', null, { id: leadId }).then(function (x) { S.detail = x; render(); });
+      });
+    };
+    var prGen = document.querySelector('[data-prgen]');
+    if (prGen) prGen.onclick = function () {
+      prGen.disabled = true;
+      toast('Building the PDF…');
+      prSaveThen(function (leadId) {
+        return api('generate_proposal', { id: leadId }).then(function (g) {
+          if (g.error) { prGen.disabled = false; return toast(g.error); }
+          toast('Proposal ready — ' + g.document.name);
+          /* Stay on the sheet and show the link: the next thing wanted is
+             almost always to look at it before emailing it. */
+          if (S.sheet && S.sheet.kind === 'proposal') S.sheet.madeDoc = g.document;
+          return api('lead', null, { id: leadId }).then(function (x) {
+            S.detail = x; render();
+          });
+        });
       });
     };
 

@@ -124,6 +124,57 @@ function doc_store(PDO $pdo, string $leadId, array $file): array {
     return [doc_get($pdo, $id), null];
 }
 
+/**
+ * Same as doc_store(), for a file the server produced itself.
+ *
+ * doc_store() insists on is_uploaded_file(), which is exactly right for
+ * anything arriving from a browser and exactly wrong for a PDF this code just
+ * rendered — so generation gets its own entry point rather than a flag that
+ * weakens the upload check.
+ */
+function doc_store_local(PDO $pdo, string $leadId, string $srcPath, string $name): array {
+    if (!is_file($srcPath)) return [null, 'the generated file is missing'];
+
+    $mime = 'application/pdf';
+    if (class_exists('finfo')) {
+        $f = new finfo(FILEINFO_MIME_TYPE);
+        $mime = (string)$f->file($srcPath) ?: $mime;
+    }
+    if (!isset(DOC_TYPES[$mime])) return [null, 'generated an unexpected file type: ' . $mime];
+
+    $sha    = hash_file('sha256', $srcPath);
+    $stored = $sha . '.' . DOC_TYPES[$mime];
+    $dest   = doc_dir_for($leadId) . '/' . $stored;
+    if (!file_exists($dest) && !@copy($srcPath, $dest)) {
+        return [null, 'could not save the generated file'];
+    }
+    @chmod($dest, 0600);
+
+    /* Regenerating after a price change must replace the old proposal, not
+       leave two near-identical PDFs to choose between when emailing. Identical
+       bytes reuse the row; different bytes supersede the previous generated
+       one for this lead. */
+    $same = $pdo->prepare("SELECT id FROM documents WHERE lead_id=? AND sha256=?");
+    $same->execute([$leadId, $sha]);
+    if ($id = $same->fetchColumn()) {
+        $pdo->prepare("UPDATE documents SET name=?, send_name=?, created_at=? WHERE id=?")
+            ->execute([$name, doc_ascii_name($name), time(), $id]);
+        return [doc_get($pdo, $id), null];
+    }
+
+    $prev = $pdo->prepare("SELECT * FROM documents WHERE lead_id=? AND name=?");
+    $prev->execute([$leadId, $name]);
+    if ($old = $prev->fetch()) doc_delete($pdo, $old);
+
+    $id = 'd_' . substr(bin2hex(random_bytes(6)), 0, 8);
+    $pdo->prepare("INSERT INTO documents
+        (id,lead_id,name,send_name,stored,mime,size,sha256,created_at)
+        VALUES (?,?,?,?,?,?,?,?,?)")
+        ->execute([$id, $leadId, $name, doc_ascii_name($name), $stored,
+                   $mime, filesize($srcPath), $sha, time()]);
+    return [doc_get($pdo, $id), null];
+}
+
 function doc_get(PDO $pdo, string $id): ?array {
     $s = $pdo->prepare("SELECT * FROM documents WHERE id=?");
     $s->execute([$id]);
