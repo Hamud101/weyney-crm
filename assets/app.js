@@ -560,34 +560,40 @@
       '</div></div></div>';
   }
 
-  /* One row, shared by Leads and Clients. `extra` is whatever that view wants
-     hanging off the right-hand end — a stage picker on Leads, nothing here. */
-  function leadRow(l, extra) {
-    var next = l.next_at
-      ? '<span class="nx">' + when(l.next_at) + '</span>'
-      : '<span class="nx none">nothing booked' +
-        (l.last_ts ? ' · ' + stamp(l.last_ts) : '') + '</span>';
-    return '<div class="item click' + (extra ? ' withstage' : '') + '" data-openlead="' + esc(l.id) + '">' +
-      '<div class="who2"><div class="nm">' + esc(l.name) + '</div>' +
-      '<div class="sub">' + esc(prettyPhone(l.phone)) +
-        (l.contact ? ' · ' + esc(l.contact) : '') +
-        (l.city ? ' · ' + esc(l.city) : '') + '</div></div>' +
-      '<div class="when">' + next + '</div>' + (extra || '') + '</div>';
-  }
-
   /* Clients are the ones who signed — nothing else. Cards, not rows: a handful
      of accounts stretched across a full-width row is mostly empty space, and
      unlike a lead there is no queue position to scan down. Each card carries
      the details you actually reach for mid-call, so the record only has to be
      opened when you want the history. */
+  /* Nobody has uploaded a logo file, and pulling a favicon would post every
+     client's domain to a third party from inside a private CRM — so the mark is
+     drawn from the name itself: initials, plus a hue hashed off the full name so
+     the same client always gets the same tile. Low saturation keeps it inside
+     the near-monochrome palette rather than turning the page into confetti. */
+  var MONO_SKIP = { the:1, and:1, of:1, llc:1, inc:1, 'inc.':1, co:1, ltd:1, group:1 };
+  function monogram(name) {
+    var words = String(name).replace(/[^\w\s&-]/g, ' ').trim().split(/\s+/);
+    var use = words.filter(function (w) { return !MONO_SKIP[w.toLowerCase()]; });
+    if (!use.length) use = words;
+    /* One-word names ("Hoops4Unity") take their first two letters — a single
+       letter is not enough to tell two clients apart at a glance. */
+    var ini = use.length > 1
+      ? (use[0] || '').charAt(0) + (use[1] || '').charAt(0)
+      : (use[0] || '').slice(0, 2);
+    var h = 0;
+    for (var i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+    return '<span class="ccmark" aria-hidden="true" style="background:hsl(' + h +
+           ' 32% 91%);color:hsl(' + h + ' 42% 28%)">' + esc(ini.toUpperCase()) + '</span>';
+  }
+
   function clientCard(l) {
     var fact = function (k, v) {
       return v ? '<dt>' + k + '</dt><dd>' + v + '</dd>' : '';
     };
     return '<div class="ccard click" data-openlead="' + esc(l.id) + '">' +
-      '<div class="cctop">' +
-        '<div class="ccname">' + esc(l.name) + '</div>' +
-        (l.city ? '<div class="ccwhere">' + esc(l.city) + '</div>' : '') +
+      '<div class="cctop">' + monogram(l.name) +
+        '<div class="ccid"><div class="ccname">' + esc(l.name) + '</div>' +
+        (l.city ? '<div class="ccwhere">' + esc(l.city) + '</div>' : '') + '</div>' +
       '</div>' +
       '<dl class="facts">' +
         fact('Contact', esc(l.contact)) +
@@ -625,72 +631,112 @@
       '<div class="cgrid">' + c.map(clientCard).join('') + '</div></div>';
   }
 
-  /* Leads: everyone who has not signed, grouped by where they actually are.
-     Ordered closest-to-signing first, so the top of the page is the work that
-     is nearly money and the cold end sits below the fold. */
+  /* Leads: everyone who has not signed. `tone` picks the badge colour from the
+     status tokens already in the palette — warm for something slipping, blue
+     for something in flight, grey for cold. */
   var LEAD_GROUPS = [
-    { key:'proposal', label:'Proposal out',   sub:'Quoted, awaiting a signature', stages:['proposal'] },
-    { key:'held',     label:'Demo held',      sub:'Pitched, needs a next step',   stages:['demo_done'] },
-    { key:'booked',   label:'Demo scheduled', sub:'On the calendar',              stages:['demo_set'] },
-    { key:'noshow',   label:'Demo no-show',   sub:'Missed it — rebook',           stages:['demo_noshow'] },
-    { key:'talking',  label:'In conversation',sub:'Reached, nothing booked yet',  stages:['contacted'] },
-    { key:'vm',       label:'Voicemail',      sub:'Pitch left, waiting on a call back', stages:['voicemail'] },
-    { key:'noanswer', label:'No answer',      sub:'Dialled, never reached',       stages:['attempting'] },
-    { key:'nurture',  label:'Nurture',        sub:'Not now, worth keeping warm',  stages:['nurture'] },
-    { key:'cold',     label:'Not called yet', sub:'Untouched — work these in the call queue', stages:['new'] },
-    { key:'lost',     label:'Lost',           sub:'Closed out',                   stages:['lost'] }
+    { key:'proposal', label:'Proposal out',   tone:'info',  stages:['proposal'] },
+    { key:'held',     label:'Demo held',      tone:'ok',    stages:['demo_done'] },
+    { key:'booked',   label:'Demo scheduled', tone:'ok',    stages:['demo_set'] },
+    { key:'noshow',   label:'Demo no-show',   tone:'warn',  stages:['demo_noshow'] },
+    { key:'talking',  label:'In conversation',tone:'ok',    stages:['contacted'] },
+    { key:'vm',       label:'Voicemail',      tone:'info',  stages:['voicemail'] },
+    { key:'noanswer', label:'No answer',      tone:'grey',  stages:['attempting'] },
+    { key:'nurture',  label:'Nurture',        tone:'grey',  stages:['nurture'] },
+    { key:'cold',     label:'Not called yet', tone:'grey',  stages:['new'] },
+    { key:'lost',     label:'Lost',           tone:'bad',   stages:['lost'] }
   ];
+  function groupFor(stage) {
+    for (var i = 0; i < LEAD_GROUPS.length; i++) {
+      if (LEAD_GROUPS[i].stages.indexOf(stage) >= 0) return LEAD_GROUPS[i];
+    }
+    return { key:'', label:stage, tone:'grey' };
+  }
+  /* LEAD_GROUPS is already ordered closest-to-signing first, so its index is
+     the sort key: no second list to keep in step with the first. */
+  function depth(stage) {
+    var i = LEAD_GROUPS.indexOf(groupFor(stage));
+    return i < 0 ? LEAD_GROUPS.length : i;
+  }
 
-  /* Counts across the whole pipeline, and a click-to-narrow filter. Same idea
-     as the call queue's stage strip, so the two read the same way. */
-  function leadStrip() {
-    var out = '<div class="stages leadstrip">';
-    out += '<button data-lstage="" class="' + (S.leadFilter ? '' : 'on') + '">All' +
-           '<i>' + S.leads.length + '</i></button>';
+  /* One dropdown instead of a strip of ten pills. The strip made you read the
+     whole pipeline before you could pick out of it, and it wrapped badly. */
+  function leadPicker() {
+    var opts = '<option value=""' + (S.leadFilter ? '' : ' selected') + '>' +
+               'All leads (' + S.leads.length + ')</option>';
     LEAD_GROUPS.forEach(function (g) {
       var n = S.leads.filter(function (l) { return g.stages.indexOf(l.stage) >= 0; }).length;
       if (!n && S.leadFilter !== g.key) return;
-      out += '<button data-lstage="' + g.key + '" class="' + (S.leadFilter === g.key ? 'on' : '') + '">' +
-             esc(g.label) + '<i>' + n + '</i></button>';
+      opts += '<option value="' + g.key + '"' + (S.leadFilter === g.key ? ' selected' : '') +
+              '>' + esc(g.label) + ' (' + n + ')</option>';
     });
-    return out + '</div>';
+    return '<div class="lbar">' +
+      '<label class="lbl" for="l-cat">Show</label>' +
+      '<select id="l-cat" class="lpick" data-lstage="1">' + opts + '</select>' +
+      '<span class="grow"></span>' +
+      (S.leadTotal > S.leads.length
+        ? '<span class="capnote">' + S.leads.length + ' most recently touched of ' +
+          S.leadTotal + '</span>'
+        : '') +
+      '</div>';
   }
 
+  /* One continuous table, sorted by how far along each lead is, with the stage
+     as a badge on the row. Ten stacked stage sections meant ten headings, ten
+     restarts, and no way to compare two leads in different stages — this gives
+     a single scan path down the page and keeps the distinction visible. */
   function viewLeads() {
     if (!S.leads) return '<div class="panel"><div class="empty">Loading…</div></div>';
     if (!S.leads.length) return '<div class="panel"><div class="empty"><b>No leads</b>' +
       'Import a call list, or add one by hand with + Add lead.</div></div>';
 
-    var body = LEAD_GROUPS.map(function (g) {
-      if (S.leadFilter && S.leadFilter !== g.key) return '';
-      var rows = S.leads.filter(function (l) { return g.stages.indexOf(l.stage) >= 0; });
-      if (!rows.length) return '';
-      /* A cold list can hold thousands in one stage; past a screenful of
-         screenfuls the call queue is the right tool, not this list. */
-      var shown = rows.slice(0, 200);
-      return '<div class="cgroup ' + g.key + '">' +
-        '<div class="ghead"><b>' + esc(g.label) + '</b>' +
-          '<span class="gsub">' + esc(g.sub) + '</span>' +
-          '<span class="gcount">' + rows.length + '</span></div>' +
-        '<div class="list">' + shown.map(function (l) {
-          return leadRow(l, '<select class="rowstage" data-move="' + esc(l.id) + '" ' +
-                            'title="Move this lead to another stage">' +
-                            stageOptions(l.stage) + '</select>');
-        }).join('') +
-        (rows.length > shown.length
-          ? '<p class="capnote">+' + (rows.length - shown.length) +
-            ' more in this stage — work them from the call queue</p>'
-          : '') +
-        '</div></div>';
-    }).join('');
+    var rows = S.leads.filter(function (l) {
+      return !S.leadFilter || groupFor(l.stage).key === S.leadFilter;
+    });
+    /* The server already sorted by last touched; a stable sort by depth keeps
+       that as the tie-break inside each stage. */
+    rows = rows.slice().sort(function (a, b) { return depth(a.stage) - depth(b.stage); });
+    var shown = rows.slice(0, 300);
 
-    return leadStrip() + (body ||
-      '<div class="panel"><div class="empty"><b>Nothing in that stage</b>' +
-      'Pick another above, or All.</div></div>') +
-      (S.leadTotal > S.leads.length
-        ? '<p class="capnote">Showing the ' + S.leads.length + ' most recently touched of ' +
-          S.leadTotal + ' leads.</p>'
-        : '');
+    if (!rows.length) {
+      return leadPicker() + '<div class="panel"><div class="empty"><b>Nothing here</b>' +
+        'No leads in that category — pick another, or All leads.</div></div>';
+    }
+
+    return leadPicker() +
+      '<div class="panel ltwrap"><table class="ltable"><thead><tr>' +
+        '<th>Business</th><th>Stage</th><th>Contact</th><th>Phone</th>' +
+        '<th>Next / last touched</th><th class="thmove">Move to</th>' +
+      '</tr></thead><tbody>' +
+      shown.map(function (l) {
+        var g = groupFor(l.stage);
+        var next = l.next_at
+          ? '<span class="nx">' + when(l.next_at) + '</span>'
+          /* A bare date in this column reads as something upcoming. Only a
+             booked event is; everything else is history, so say so. */
+          : '<span class="nx none">' +
+            (l.last_ts ? 'touched ' + stamp(l.last_ts) : 'never touched') + '</span>';
+        return '<tr class="click" data-openlead="' + esc(l.id) + '">' +
+          '<td class="ltname"><b>' + esc(l.name) + '</b>' +
+            (l.city ? '<span>' + esc(l.city) + '</span>' : '') + '</td>' +
+          '<td><span class="sbadge ' + g.tone + '">' + esc(g.label) + '</span></td>' +
+          '<td class="ltdim">' + (l.contact ? esc(l.contact) : '—') + '</td>' +
+          '<td>' + (l.phone
+            ? '<a href="' + dialHref(l.phone) + '" target="_blank" rel="noopener" ' +
+              'onclick="event.stopPropagation()" title="Dial with Google Voice">' +
+              esc(prettyPhone(l.phone)) + '</a>'
+            : '<span class="ltdim">—</span>') + '</td>' +
+          '<td>' + next + '</td>' +
+          '<td><select class="rowstage" data-move="' + esc(l.id) + '" ' +
+            'title="Move this lead to another stage">' + stageOptions(l.stage) +
+            '</select></td></tr>';
+      }).join('') +
+      '</tbody></table>' +
+      (rows.length > shown.length
+        ? '<p class="capnote">+' + (rows.length - shown.length) +
+          ' more — work them from the call queue</p>'
+        : '') +
+      '</div>';
   }
 
   function evItem(e) {
@@ -1096,9 +1142,8 @@
     app.querySelectorAll('[data-back]').forEach(function (el) {
       el.onclick = function () { go({ view: S.from || 'clients' }); };
     });
-    app.querySelectorAll('[data-lstage]').forEach(function (el) {
-      el.onclick = function () { S.leadFilter = el.dataset.lstage; render(); };
-    });
+    var lcat = document.getElementById('l-cat');
+    if (lcat) lcat.onchange = function () { S.leadFilter = lcat.value; render(); };
     /* Move a lead without opening it — the one edit this list needs, because
        "they signed" is the change you make most often and it belongs next to
        the name. Moving to Won drops them off this list and into Clients. */

@@ -268,12 +268,12 @@ body.gate{display:grid;place-items:center;overflow:auto}
   .body{padding:13px}
   .qleft,.qright{padding:17px 16px}
   .phone{font-size:26px}
-  /* A fixed-width stage picker beside the name leaves the name one word per
-     line on a phone. Drop it onto its own row instead. */
-  .item.withstage{flex-wrap:wrap;gap:9px}
-  .item.withstage .who2{flex:1 0 100%}
-  .item.withstage .when{margin-left:0}
-  .rowstage{width:auto;flex:1}
+  /* The leads table keeps its columns and scrolls sideways inside .ltwrap —
+     stacking six fields per lead into a card makes the list unscannable, which
+     is the whole point of the table. */
+  .ltable{font-size:13px}
+  .ltable th,.ltable td{padding:9px 11px}
+  .lbar{flex-wrap:wrap}
 }
 
 /* ---------- dashboard ----------
@@ -441,29 +441,69 @@ body.gate{display:grid;place-items:center;overflow:auto}
 
 /* Move a lead from the list itself. Deliberately quiet until you reach for it —
    it sits on every row and would otherwise shout over the names. */
-/* .wrap is a flex column, so a strip with no fixed height gets squashed flat by
-   the groups under it. The call queue's strip escapes this because a .panel
-   follows it; here the groups are the flex children. */
-.leadstrip{flex:none}
-.rowstage{flex:none;width:150px;padding:6px 9px;border-radius:7px;
+/* ---- Leads: one table, filtered by category ---- */
+.lbar{flex:none;display:flex;align-items:center;gap:10px;padding-bottom:12px}
+.lbar .lbl{font-size:11px;font-weight:700;letter-spacing:.07em;
+  text-transform:uppercase;color:var(--faint)}
+.lpick{padding:7px 12px;border-radius:8px;border:1px solid var(--line);
+  background:var(--surface);color:var(--ink);font:inherit;font-size:13px;
+  font-weight:650;cursor:pointer;box-shadow:var(--sh)}
+.lpick:hover{border-color:var(--accent)}
+.ltwrap{flex:none;padding:0;overflow-x:auto}
+/* min-width, so a narrow viewport scrolls the table sideways rather than
+   compressing every column until business names break one word per line. */
+.ltable{width:100%;min-width:880px;border-collapse:collapse;font-size:13.5px}
+.ltable th{text-align:left;padding:11px 14px;font-size:11px;font-weight:700;
+  letter-spacing:.07em;text-transform:uppercase;color:var(--faint);
+  border-bottom:1px solid var(--line);white-space:nowrap}
+.ltable td{padding:11px 14px;border-bottom:1px solid var(--line2);vertical-align:middle}
+.ltable tbody tr:last-child td{border-bottom:0}
+.ltable tbody tr.click{cursor:pointer}
+.ltable tbody tr.click:hover{background:var(--s2)}
+.ltable .ltname b{display:block;font-weight:650;font-size:14px;
+  max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ltable .ltname span{color:var(--faint);font-size:12px}
+.ltable td:nth-child(4){white-space:nowrap}
+.ltable .ltdim{color:var(--soft)}
+.ltable td a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}
+.ltable td a:hover{border-bottom-color:var(--accent)}
+.ltable .thmove{text-align:right}
+.ltable td .rowstage{float:right}
+
+/* The stage badge. Colour carries the distinction the stage headings used to,
+   without breaking the table into ten sections. */
+.sbadge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11.5px;
+  font-weight:700;white-space:nowrap;background:var(--s2);color:var(--soft)}
+.sbadge.info{background:var(--info-wash);color:var(--info)}
+.sbadge.ok{background:var(--ok-wash);color:var(--ok)}
+.sbadge.warn{background:var(--warn-wash);color:var(--warn)}
+.sbadge.bad{background:var(--bad-wash);color:var(--bad)}
+
+.rowstage{width:150px;padding:6px 9px;border-radius:7px;
   border:1px solid var(--line);background:var(--surface);color:var(--soft);
   font:inherit;font-size:12px;font-weight:600;cursor:pointer}
 .rowstage:hover{border-color:var(--accent);color:var(--ink)}
-.who2{min-width:0;flex:1}
-.capnote{margin:10px 2px 0;font-size:12px;color:var(--faint)}
+.capnote{margin:10px 2px 0;padding:0 14px 12px;font-size:12px;color:var(--faint)}
+.lbar .capnote{margin:0;padding:0}
 
-/* Client cards. auto-fill, so two accounts sit side by side instead of two
-   full-width bands of nothing, and twenty still tile without a redesign.
+/* Client cards, two to a row. Four across made every card a narrow column of
+   truncated email addresses; two gives each account room to be read.
    align-content:start stops the grid stretching to fill a tall .wrap. */
-.cgrid{display:grid;gap:12px;align-content:start;
-  grid-template-columns:repeat(auto-fill,minmax(272px,1fr))}
+.cgrid{display:grid;gap:14px;align-content:start;
+  grid-template-columns:repeat(2,minmax(0,1fr))}
 .ccard{background:var(--surface);border:1px solid var(--line);border-radius:12px;
-  padding:15px 16px 13px;box-shadow:var(--sh);display:flex;flex-direction:column}
+  padding:16px 18px 14px;box-shadow:var(--sh);display:flex;flex-direction:column}
 .ccard.click{cursor:pointer}
 .ccard.click:hover{border-color:var(--accent);box-shadow:var(--lift)}
-.cctop{padding-bottom:11px;border-bottom:1px solid var(--line2);margin-bottom:11px}
-.ccname{font-size:16px;font-weight:700;line-height:1.25}
+.cctop{display:flex;align-items:center;gap:13px;
+  padding-bottom:12px;border-bottom:1px solid var(--line2);margin-bottom:12px}
+.ccid{min-width:0}
+/* Initials tile: the thing your eye lands on before it reads anything. */
+.ccmark{flex:none;width:44px;height:44px;border-radius:11px;display:grid;
+  place-items:center;font-size:16px;font-weight:700;letter-spacing:.02em}
+.ccname{font-size:16.5px;font-weight:700;line-height:1.25}
 .ccwhere{margin-top:2px;font-size:12.5px;color:var(--faint)}
+@media(max-width:900px){ .cgrid{grid-template-columns:minmax(0,1fr)} }
 .ccard .facts{margin:0;gap:5px 12px}
 .ccard .facts dd{font-size:13.5px;overflow:hidden;text-overflow:ellipsis}
 .ccfoot{margin-top:auto;padding-top:12px;display:flex;align-items:baseline;
