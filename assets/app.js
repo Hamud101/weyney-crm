@@ -988,52 +988,71 @@
 
       var mo = monthlyTotal(p);
       var doc = S.sheet.madeDoc;
+      var due = proposalTotal(p);
 
-      return '<div class="sheet-bg" data-close="1"><div class="sheet">' +
+      /* Two columns so all ten services are on screen at once — the whole point
+         of ticking is comparing what is in and what is out, and that stops
+         working the moment half the list is below the fold. Terms sit beside
+         the list rather than under it for the same reason. */
+      return '<div class="sheet-bg" data-close="1"><div class="sheet proposal">' +
         '<h3>Proposal</h3><div class="who">' + esc(pl.name) + '</div>' +
-        '<label>What they are buying <span class="opt">— tick each one; every price is editable</span></label>' +
-        '<div class="svclist">' + list + '</div>' +
-        (mo
-          ? '<label class="chk"><input type="checkbox" id="pr-prepaid"' +
-              (p.prepaid ? ' checked' : '') + '> Prepay the monthly fees up front</label>' +
-            (p.prepaid
-              ? '<div><label>Term <span class="opt">— months prepaid</span></label>' +
-                '<input id="pr-term" type="number" min="1" max="60" value="' +
-                (+p.term_months || 12) + '"></div>'
-              : '')
-          : '') +
-        '<div class="pgrid">' +
-          '<div><label>Change fee <span class="opt">— per request</span></label>' +
-            '<input id="pr-changefee" type="number" min="0" step="5" value="' +
-            (p.change_fee == null ? 50 : +p.change_fee) + '"></div>' +
-          '<div><label>Agreement date</label>' +
-            '<input id="pr-date" type="date" value="' + esc(p.date || todayISO()) + '"></div>' +
+        '<div class="prcols">' +
+          '<div class="prleft">' +
+            '<label>What they are buying <span class="opt">— tick each one; every price is editable</span></label>' +
+            '<div class="svclist">' + list + '</div>' +
+          '</div>' +
+          '<div class="prright">' +
+            (mo
+              ? '<label class="chk"><input type="checkbox" id="pr-prepaid"' +
+                  (p.prepaid ? ' checked' : '') + '> Prepay the monthly fees up front</label>' +
+                (p.prepaid
+                  ? '<div><label>Term <span class="opt">— months prepaid</span></label>' +
+                    '<input id="pr-term" type="number" min="1" max="60" value="' +
+                    (+p.term_months || 12) + '"></div>'
+                  : '')
+              : '<p class="hint">Tick a per-month service to set a prepaid term.</p>') +
+            '<div class="pgrid">' +
+              '<div><label>Change fee <span class="opt">— per request</span></label>' +
+                '<input id="pr-changefee" type="number" min="0" step="5" value="' +
+                (p.change_fee == null ? 50 : +p.change_fee) + '"></div>' +
+              '<div><label>Agreement date</label>' +
+                '<input id="pr-date" type="date" value="' + esc(p.date || todayISO()) + '"></div>' +
+            '</div>' +
+            '<label>Notes <span class="opt">— appears under the fees in the agreement</span></label>' +
+            '<textarea id="pr-notes" rows="4" placeholder="No monthly maintenance plan is included. Changes after launch are billed individually.">' +
+              esc(p.notes || '') + '</textarea>' +
+            (S.sheet.building
+              ? '<div class="attach">Building the PDF… the renderer runs on a ' +
+                'schedule, so this takes up to a minute.</div>'
+              : S.sheet.buildErr
+              ? '<div class="attach missing">' + esc(S.sheet.buildErr) + '</div>'
+              : doc
+              ? '<div class="attach">Generated <b>' + esc(doc.name) + '</b> — ' +
+                'on the record and in the email sheet. ' +
+                '<a href="/crm/doc.php?id=' + esc(doc.id) + '" target="_blank" rel="noopener">Open it</a></div>'
+              : '') +
+          '</div>' +
         '</div>' +
-        '<label>Notes <span class="opt">— appears under the fees in the agreement</span></label>' +
-        '<textarea id="pr-notes" rows="3" placeholder="No monthly maintenance plan is included. Changes after launch are billed individually.">' +
-          esc(p.notes || '') + '</textarea>' +
-        '<div class="proptotal big"><span>Due on signing</span><b>' +
-          money(proposalTotal(p)) + '</b></div>' +
-        (mo && !p.prepaid
-          ? '<p class="hint">Then ' + money(mo) + ' per month.</p>' : '') +
-        (S.sheet.building
-          ? '<div class="attach">Building the PDF… the renderer runs on a ' +
-            'schedule, so this takes up to a minute.</div>'
-          : S.sheet.buildErr
-          ? '<div class="attach missing">' + esc(S.sheet.buildErr) + '</div>'
-          : doc
-          ? '<div class="attach">Generated <b>' + esc(doc.name) + '</b> — ' +
-            'it is on the record and in the email sheet. ' +
-            '<a href="/crm/doc.php?id=' + esc(doc.id) + '" target="_blank" rel="noopener">Open it</a></div>'
-          : '<p class="hint">Generate builds the signable PDF with all of this filled ' +
-            'in and puts it on this lead, ready to email.</p>') +
-        '<div class="acts"><button class="cancel" data-close="1">Close</button>' +
-        '<button class="btn" data-prsave="1">Save only</button>' +
-        '<button class="go" data-prgen="1"' +
-          (!(p.lines || []).length || S.sheet.building
-            ? ' disabled title="Tick at least one service"' : '') +
-          '>' + (S.sheet.building ? 'Building…' : 'Save &amp; generate PDF') +
-          '</button></div></div></div>';
+        /* Pinned: the running total is the reason to be in this sheet, so it
+           must not scroll away while you are ticking things. */
+        '<div class="prfoot">' +
+          '<div class="prsum">' +
+            '<span class="prsumlab">Due on signing</span>' +
+            '<b class="prsumval">' + money(due) + '</b>' +
+            (mo
+              ? '<span class="prsummo">' + (p.prepaid
+                  ? 'includes ' + money(mo) + '/mo × ' + (p.term_months || 12)
+                  : 'then ' + money(mo) + '/mo') + '</span>'
+              : '') +
+          '</div>' +
+          '<div class="acts"><button class="cancel" data-close="1">Close</button>' +
+          '<button class="btn" data-prsave="1">Save only</button>' +
+          '<button class="go" data-prgen="1"' +
+            (!(p.lines || []).length || S.sheet.building
+              ? ' disabled title="Tick at least one service"' : '') +
+            '>' + (S.sheet.building ? 'Building…' : 'Save &amp; generate PDF') +
+            '</button></div>' +
+        '</div></div></div>';
     }
     if (k === 'email') {
       var l = S.sheet.lead;
