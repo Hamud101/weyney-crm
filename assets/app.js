@@ -1801,7 +1801,11 @@
                    document: S.sheet.doc || '' })
       .then(function (r) {
         if (r.error) return toast(r.error);
-        toast(r.attached ? 'Sent to ' + r.to + ' with ' + r.attached : 'Sent to ' + r.to);
+        /* The copy in Sent is how sending gets verified in the mail client, so
+           say when there won't be one — otherwise an empty Sent folder reads as
+           an email that never went. */
+        toast((r.attached ? 'Sent to ' + r.to + ' with ' + r.attached : 'Sent to ' + r.to)
+              + (r.filed ? '' : ' — no copy in Sent'));
         S.sheet = null;
         /* Sending from a record has to refresh that record — the log gained an
            entry and the document now has a sent date. The queue reload was

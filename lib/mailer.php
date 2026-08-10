@@ -80,19 +80,28 @@ class Smtp {
             foreach ($contentHeaders as $h) $headers[] = $h;
             if ($replyTo) $headers[] = 'Reply-To: <' . $replyTo . '>';
 
-            // Dot-stuffing: a line that is just "." would end DATA early.
-            $safe = preg_replace('/^\./m', '..', str_replace("\r\n", "\n", $mimeBody));
-            $safe = str_replace("\n", "\r\n", $safe);
+            // One CRLF normalisation, then two versions of the same message:
+            // the wire copy is dot-stuffed because a line of just "." would end
+            // DATA early, and the filing copy below must not be.
+            $crlf = str_replace("\n", "\r\n", str_replace("\r\n", "\n", $mimeBody));
+            $raw  = implode("\r\n", $headers) . "\r\n\r\n" . $crlf;
 
-            fwrite($this->fp, implode("\r\n", $headers) . "\r\n\r\n" . $safe . "\r\n.\r\n");
+            fwrite($this->fp, implode("\r\n", $headers) . "\r\n\r\n"
+                              . preg_replace('/^\./m', '..', $crlf) . "\r\n.\r\n");
             $this->expect('250', 'send');
 
             $this->wr('QUIT');
             fclose($this->fp);
-            return [true, 'sent', $this->log];
+
+            // The message is gone and cannot be unsent; from here nothing may
+            // turn a delivered email into a reported failure.
+            [$filed, $why] = mail_file_sent($raw);
+            $this->log[] = $filed ? '# filed in Sent' : '# not filed: ' . $why;
+
+            return [true, 'sent', $this->log, $filed];
         } catch (Throwable $e) {
             @fclose($this->fp);
-            return [false, $e->getMessage(), $this->log];
+            return [false, $e->getMessage(), $this->log, false];
         }
     }
 
@@ -148,6 +157,87 @@ class Smtp {
     }
 }
 
+/**
+ * Put a copy of a message into the IMAP Sent folder.
+ *
+ * A Sent folder is written by whatever *composed* the message, never by the
+ * mail server. Titan files what its own webmail types and nothing else, so for
+ * a year everything this app relayed left no trace in the mailbox — the send
+ * succeeded and the operator had no way to see it. Desktop clients solve this
+ * by APPENDing after submission; so does this.
+ *
+ * Deliberately hand-rolled rather than using ext-imap. The extension is present
+ * on the host today but was moved to PECL in PHP 8.4, and this site is still on
+ * an end-of-life 8.0 that has to be bumped. Fifty lines of socket beats a
+ * feature that disappears on upgrade day.
+ *
+ * Best-effort, always. It runs only after SMTP has already accepted the message,
+ * and every failure returns instead of throwing: not filing a copy is a missing
+ * receipt, not a missing email, and it must never be reported as one.
+ */
+function mail_file_sent(string $raw): array {
+    $host = cfg('imap_host', 'imap.titan.email');
+    $port = (int)cfg('imap_port', 993);
+    $user = cfg('imap_user', cfg('smtp_user'));
+    $pass = cfg('imap_pass', cfg('smtp_pass'));
+    $box  = cfg('imap_sent', 'Sent');
+
+    if (!$user || !$pass) return [false, 'IMAP not configured'];
+
+    $ctx = stream_context_create(['ssl' => ['verify_peer' => true, 'verify_peer_name' => true]]);
+    $fp = @stream_socket_client("ssl://$host:$port", $errno, $errstr, 15,
+                                STREAM_CLIENT_CONNECT, $ctx);
+    if (!$fp) return [false, "connect failed: $errstr"];
+    stream_set_timeout($fp, 15);
+
+    /* Read until the line carrying our tag. Untagged "*" status lines and the
+       "+" continuation both arrive first and are not answers. */
+    $reply = function (string $tag) use ($fp): string {
+        $last = '';
+        while (($line = fgets($fp, 8192)) !== false) {
+            $last = trim($line);
+            if ($last !== '' && $last[0] === '+') return $last;
+            if (strncmp($last, $tag . ' ', strlen($tag) + 1) === 0) return $last;
+        }
+        return $last;
+    };
+    $quote = function (string $s): string {
+        return '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $s) . '"';
+    };
+
+    try {
+        if (strncmp((string)fgets($fp, 8192), '* OK', 4) !== 0) {
+            throw new RuntimeException('no IMAP greeting');
+        }
+
+        fwrite($fp, 'a1 LOGIN ' . $quote($user) . ' ' . $quote($pass) . "\r\n");
+        $r = $reply('a1');
+        if (strncmp($r, 'a1 OK', 5) !== 0) throw new RuntimeException('login rejected');
+
+        /* The literal length is a byte count of exactly what follows, which is
+           why $raw had to be built CRLF-clean and un-dot-stuffed. */
+        fwrite($fp, 'a2 APPEND ' . $quote($box) . ' (\\Seen) {' . strlen($raw) . "}\r\n");
+        $r = $reply('a2');
+        if ($r === '' || $r[0] !== '+') throw new RuntimeException('APPEND refused: ' . $r);
+
+        fwrite($fp, $raw . "\r\n");
+        $r = $reply('a2');
+        if (strncmp($r, 'a2 OK', 5) !== 0) throw new RuntimeException('APPEND failed: ' . $r);
+
+        fwrite($fp, "a3 LOGOUT\r\n");
+        fclose($fp);
+        return [true, 'filed'];
+    } catch (Throwable $e) {
+        @fclose($fp);
+        return [false, $e->getMessage()];
+    }
+}
+
+/**
+ * Returns [$ok, $info, $log, $filed]. $filed says whether a copy reached the
+ * Sent folder and is only meaningful when $ok — callers that don't care can
+ * destructure the first two and ignore the rest.
+ */
 function send_mail(string $to, string $subject, string $body, string $replyTo = '',
                    array $attachments = []): array {
     return (new Smtp())->send($to, $subject, $body, $replyTo, $attachments);

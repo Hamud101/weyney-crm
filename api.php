@@ -483,7 +483,7 @@ case 'email': {
         if (!$attach) json_out(['error' => 'that document is not on this lead'], 400);
     }
 
-    [$sent, $info] = send_mail($lead['email'], $subject, $body, cfg('smtp_from'), $attach);
+    [$sent, $info, , $filed] = send_mail($lead['email'], $subject, $body, cfg('smtp_from'), $attach);
     if (!$sent) json_out(['error' => 'send failed: ' . $info], 502);
 
     $note = 'Emailed ' . $lead['email'] . ' — ' . $subject;
@@ -494,8 +494,12 @@ case 'email': {
         $pdo->prepare("UPDATE documents SET sent_at=? WHERE id=?")->execute([$now, $docId]);
     }
     touch_lead($pdo, $id);
+    /* 'filed' is not success or failure — the email is sent either way. It tells
+       the sender whether the Sent folder will show it, so a false makes them
+       trust this log rather than a mailbox that is about to look empty. */
     json_out(['ok' => true, 'to' => $lead['email'],
-              'attached' => $attach ? $attach[0]['name'] : null]);
+              'attached' => $attach ? $attach[0]['name'] : null,
+              'filed' => (bool)$filed]);
 }
 
 /* The agreed package for one lead. Written whole — the sheet always sends the
