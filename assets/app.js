@@ -577,6 +577,10 @@
     { id:'website',   label:'Website build',        amount:500, kind:'once',
       desc:'Design and build a custom multi-page website — Home, About, Services and Contact — built around the Client’s existing logo and brand, with a contact form.' },
     { id:'hosting',   label:'Hosting',              amount:75,  kind:'monthly',
+      /* Prepaying buys a lower monthly rate: 0 = month to month, then the term
+         in months. The ladder lives here rather than in the term picker so that
+         only the services which actually have one are ever repriced. */
+      rates:{ 0:50, 6:45, 12:40 },
       desc:'Hosting the website on Weyney Media’s infrastructure, including uptime monitoring, regular backups, and SSL.' },
     { id:'refsheet',  label:'Provider referral sheet', amount:0, kind:'once',
       desc:'A one-page referral sheet, print and PDF, written for case managers.' },
@@ -598,6 +602,22 @@
   function serviceById(id) {
     for (var i = 0; i < SERVICES.length; i++) if (SERVICES[i].id === id) return SERVICES[i];
     return null;
+  }
+
+  /* The terms actually offered. Longer commitment, bigger discount — the whole
+     point being that the year keeps something the half year does not, so there
+     is still a reason to sign one. Any other number can still be typed in. */
+  var TERMS = [{ months:6, off:'10% off' }, { months:12, off:'20% off' }];
+
+  /* Reprice every prepaid-sensitive line for a term. Services with no `rates`
+     ladder are left exactly as they are, including anything typed by hand. */
+  function applyTermRates(p, months) {
+    (p.lines || []).forEach(function (li) {
+      var s = serviceById(li.id);
+      if (!s || !s.rates || li.kind !== 'monthly') return;
+      var key = p.prepaid ? months : 0;
+      if (s.rates[key] != null) li.amount = s.rates[key];
+    });
   }
 
   function readProposal(l) {
@@ -1007,6 +1027,16 @@
                   (p.prepaid ? ' checked' : '') + '> Prepay the monthly fees up front</label>' +
                 (p.prepaid
                   ? '<div><label>Term <span class="opt">— months prepaid</span></label>' +
+                    /* Presets first, because these two are what gets sold; the
+                       box below still takes any number for a one-off deal. */
+                    '<div class="terms">' +
+                      TERMS.map(function (t) {
+                        return '<button type="button" class="term' +
+                          (+p.term_months === t.months ? ' on' : '') +
+                          '" data-term="' + t.months + '">' + t.months + ' months' +
+                          '<span>' + t.off + '</span></button>';
+                      }).join('') +
+                    '</div>' +
                     '<input id="pr-term" type="number" min="1" max="60" value="' +
                     (+p.term_months || 12) + '"></div>'
                   : '')
@@ -1509,12 +1539,26 @@
       }
     });
     var prTerm = document.getElementById('pr-term');
+    /* Typing a term is deliberately rate-neutral. Only the presets reprice, so
+       an amount set by hand is never overwritten by a stray keystroke. */
     if (prTerm) prTerm.oninput = function () { prRead(); render(); };
+    app.querySelectorAll('[data-term]').forEach(function (el) {
+      el.onclick = function () {
+        prRead();
+        var p = S.sheet.p;
+        p.term_months = +el.dataset.term;
+        applyTermRates(p, p.term_months);
+        render();
+      };
+    });
     var prPre = document.getElementById('pr-prepaid');
     if (prPre) prPre.onchange = function () {
       prRead();
       S.sheet.p.prepaid = prPre.checked;
       if (S.sheet.p.prepaid && !S.sheet.p.term_months) S.sheet.p.term_months = 12;
+      /* Dropping the prepay has to hand back the standard rate, or the discount
+         silently survives the commitment that earned it. */
+      applyTermRates(S.sheet.p, S.sheet.p.term_months);
       render();
     };
 
