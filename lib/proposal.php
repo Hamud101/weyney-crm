@@ -16,7 +16,7 @@ require_once __DIR__ . '/paths.php';
 require_once __DIR__ . '/documents.php';
 
 /** Where the headless browser and its two extra libraries live. Installed by
- *  hand — see CLAUDE.md; there is no package manager on this host. */
+ *  hand: there is no package manager on this host. */
 function chrome_bin(): string { return crm_home() . '/opt/chrome/bin/chrome-headless-shell'; }
 function chrome_lib(): string { return crm_home() . '/opt/chrome/lib'; }
 function proposal_template(): string { return __DIR__ . '/../templates/services-agreement.html'; }

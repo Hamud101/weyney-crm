@@ -16,3 +16,12 @@ __pycache__/
 
 # aider working files — local tool state, not project source
 .aider*
+
+# Local development notes. They document server paths and where the secrets
+# live, so they stay out of a public repo. Named in .git/info/exclude, which is
+# local to this checkout and never committed.
+*.notes.md
+
+# Built attachment PDFs. They carry the price list, so they stay out of a public
+# repo. Build them with attachments/src/build.py; deploy.sh sends them by name.
+attachments/*.pdf

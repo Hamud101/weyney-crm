@@ -15,13 +15,9 @@ cd "$(dirname "$0")"
 REMOTE=hostinger
 DEST='domains/weyney.com/public_html/apps/crm'
 
-# Repo-only files that must never land in the web root. The attachment PDFs do
-# ship — the mailer reads them off disk — but their print sources do not.
-#
-# CLAUDE.md is here because .htaccess only guards lib/ and sync.php: a plain .md
-# in the web root is served as-is, and this one documents the server paths, where
-# the secrets live and how the app is laid out.
-EXCLUDE='^(deploy\.sh|\.gitignore|README\.md|CLAUDE\.md|attachments/src/.*)$'
+# Repo-only files that must never land in the web root. A plain .md in the web
+# root is served as-is, since .htaccess only guards lib/ and sync.php.
+EXCLUDE='^(deploy\.sh|\.gitignore|README\.md|.*\.md|attachments/src/.*)$'
 
 DRY=""
 FORCE=""
@@ -44,7 +40,11 @@ if ! node --check assets/app.js; then
   exit 1
 fi
 
-git ls-files -z | grep -zEv "$EXCLUDE" |
+# The attachment PDFs ship but are not tracked: they carry the price list, and
+# this repo is public. They are built locally by attachments/src/build.py and
+# appended here by name so rsync still sends them. The mailer reads them off
+# disk on the server, so they have to arrive.
+{ git ls-files -z | grep -zEv "$EXCLUDE"; printf '%s\0' attachments/*.pdf; } |
   rsync -az --relative --files-from=- --from0 $DRY ./ "$REMOTE:$DEST/"
 
 if [ -n "$DRY" ]; then

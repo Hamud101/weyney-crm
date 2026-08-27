@@ -23,10 +23,12 @@ log cannot drift apart.
 filed into IMAP, so the thread reads normally in a regular mail client. Anything
 sent from the CRM is visible from a phone without the CRM.
 
-**Attachments are versioned with the code.** The service one-pagers in
-`attachments/` are built from HTML sources in `attachments/src/` by `build.py`.
-Changing a price means editing the source and rebuilding, not hunting for the
-newest PDF on a desktop.
+**Attachments are built, not hand-made.** The service one-pagers are generated
+from the HTML sources in `attachments/src/` by `build.py`, which inlines the
+fonts and drives headless Chrome. Changing a price means editing the source and
+rebuilding, not hunting for the newest PDF on a desktop. The built PDFs are not
+committed, since they carry the price list and this repo is public. `deploy.sh`
+sends them to the server by name.
 
 ## How it is put together
 
