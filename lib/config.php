@@ -40,6 +40,7 @@ const INDUSTRIES = [
     'trades'       => 'Trades & home services',
     'professional' => 'Professional services',
     'community'    => 'Community, sports & leisure',
+    'solar'        => 'Solar & energy',
     'other'        => 'Other',
 ];
 
@@ -61,6 +62,8 @@ const SERVICE_INDUSTRY = [
     'estate agent' => 'professional', 'company' => 'professional',
     'masjid' => 'community', 'youth sports' => 'community', 'sports centre' => 'community',
     'amusement arcade' => 'community',
+    'solar installer' => 'solar', 'solar' => 'solar', 'solar energy company' => 'solar',
+    'solar energy contractor' => 'solar', 'electrician' => 'trades',
 ];
 
 function industry_for_service(string $service): string {
