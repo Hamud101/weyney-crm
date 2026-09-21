@@ -70,6 +70,27 @@ function industry_for_service(string $service): string {
     return SERVICE_INDUSTRY[strtolower(trim($service))] ?? 'other';
 }
 
+/* Industries are whatever the leads say they are. INDUSTRIES above only
+   supplies nice labels for the buckets we started with; a lead that arrives
+   with an industry nobody has seen simply creates it. The key is a slug so
+   "Solar & energy", "solar" and "Solar" all land in the same bucket. */
+function industry_key(string $raw): string {
+    $k = strtolower(trim($raw));
+    if ($k === '') return '';
+    if (isset(INDUSTRIES[$k])) return $k;
+    foreach (INDUSTRIES as $key => $label)
+        if (strtolower($label) === $k) return $key;
+    $k = preg_replace('~[^a-z0-9]+~', '-', $k);
+    $k = trim($k, '-');
+    return substr($k, 0, 40);
+}
+
+function industry_label(string $key): string {
+    if (isset(INDUSTRIES[$key])) return INDUSTRIES[$key];
+    if ($key === '') return 'Other';
+    return ucfirst(str_replace('-', ' ', $key));
+}
+
 function json_out($data, int $code = 200): void {
     http_response_code($code);
     header('Content-Type: application/json; charset=utf-8');

@@ -1000,10 +1000,21 @@
 
   function industryLabel(k) { return (S.boot.industries[k] || {}).label || (k || 'Other'); }
   function industryOptions(sel) {
-    return Object.keys(S.boot.industries).map(function (k) {
+    var opts = Object.keys(S.boot.industries);
+    if (sel && opts.indexOf(sel) < 0) opts.push(sel);
+    return opts.map(function (k) {
       return '<option value="' + k + '"' + (k === sel ? ' selected' : '') + '>' +
-             esc(S.boot.industries[k].label) + '</option>';
-    }).join('');
+             esc(industryLabel(k)) + '</option>';
+    }).join('') + '<option value="__new">New industry…</option>';
+  }
+  /* A lead can arrive in an industry nobody has typed before; the server slugs
+     whatever text we send and the bucket exists from then on. */
+  function industryValue(id) {
+    var el = document.getElementById(id);
+    if (!el) return '';
+    if (el.value !== '__new') return el.value;
+    var name = (window.prompt('Name the new industry', '') || '').trim();
+    return name || 'other';
   }
 
   function sheet() {
@@ -1742,7 +1753,7 @@
       api('profile', { id: l.id,
                        pain_points: document.getElementById('pf-pain').value,
                        opportunity: document.getElementById('pf-opp').value,
-                       industry:    document.getElementById('pf-industry').value,
+                       industry:    industryValue('pf-industry'),
                        website:     document.getElementById('pf-web').value.trim(),
                        socials:     document.getElementById('pf-social').value.trim() })
         .then(function (r) {
@@ -1768,7 +1779,7 @@
         phone:   document.getElementById('nl-phone').value.trim(),
         email:   document.getElementById('nl-email').value.trim(),
         city:    document.getElementById('nl-city').value.trim(),
-        industry: document.getElementById('nl-industry').value,
+        industry: industryValue('nl-industry'),
         website: document.getElementById('nl-web').value.trim(),
         socials: document.getElementById('nl-social').value.trim(),
         stage:   document.getElementById('nl-stage').value,

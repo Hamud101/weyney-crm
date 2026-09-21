@@ -126,9 +126,19 @@ case 'bootstrap': {
 
     $indCounts = $pdo->query("SELECT industry, COUNT(*) c FROM leads GROUP BY industry")
                      ->fetchAll(PDO::FETCH_KEY_PAIR);
+    /* Known buckets first in their fixed order, then anything new the leads
+       brought with them, alphabetically, and Other last. */
     $industries = [];
     foreach (INDUSTRIES as $k => $label)
-        $industries[$k] = ['label' => $label, 'count' => (int)($indCounts[$k] ?? 0)];
+        if ($k !== 'other') $industries[$k] = ['label' => $label, 'count' => (int)($indCounts[$k] ?? 0)];
+    $extra = array_filter(array_keys($indCounts), function ($k) {
+        return $k !== '' && $k !== 'other' && !isset(INDUSTRIES[$k]);
+    });
+    sort($extra);
+    foreach ($extra as $k)
+        $industries[$k] = ['label' => industry_label((string)$k), 'count' => (int)$indCounts[$k]];
+    $industries['other'] = ['label' => INDUSTRIES['other'],
+                            'count' => (int)($indCounts['other'] ?? 0) + (int)($indCounts[''] ?? 0)];
 
     // Due today or overdue, and what's coming up.
     $dueNow = $pdo->prepare("
@@ -157,8 +167,7 @@ case 'bootstrap': {
    then anything that has gone quiet. */
 case 'queue': {
     $stage = $in['stage'] ?? 'new';
-    $industry = (string)($in['industry'] ?? '');
-    if (!isset(INDUSTRIES[$industry])) $industry = '';
+    $industry = industry_key((string)($in['industry'] ?? ''));
     /* The page size is an implementation detail; the header must show how many
        leads are actually in the stage or "1 of 50" reads as a cap on the list. */
     if ($industry !== '') {
@@ -847,8 +856,8 @@ case 'new_lead': {
     /* Trust an explicit industry from the sheet; otherwise derive it from the
        raw service so a hand-added lead is grouped like an imported one. */
     $service  = trim((string)($in['service'] ?? ''));
-    $industry = (string)($in['industry'] ?? '');
-    if (!isset(INDUSTRIES[$industry])) $industry = industry_for_service($service);
+    $industry = industry_key((string)($in['industry'] ?? ''));
+    if ($industry === '') $industry = industry_for_service($service);
 
     $id = 'l_' . substr(bin2hex(random_bytes(6)), 0, 8);
     $pdo->prepare("INSERT INTO leads
@@ -885,8 +894,8 @@ case 'profile': {
              trim((string)($in['opportunity'] ?? '')),
              $site, trim((string)($in['socials'] ?? ''))];
     // A missing or bad industry leaves the stored value alone rather than blanking it.
-    $industry = (string)($in['industry'] ?? '');
-    if (isset(INDUSTRIES[$industry])) { $set .= ", industry=?"; $vals[] = $industry; }
+    $industry = industry_key((string)($in['industry'] ?? ''));
+    if ($industry !== '') { $set .= ", industry=?"; $vals[] = $industry; }
     $set .= ", updated_at=?"; $vals[] = $now; $vals[] = $id;
     $pdo->prepare("UPDATE leads SET $set WHERE id=?")->execute($vals);
     json_out(['ok' => true]);
