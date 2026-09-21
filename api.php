@@ -124,6 +124,12 @@ case 'bootstrap': {
     $stages = [];
     foreach (STAGES as $k => $v) $stages[$k] = ['label' => $v['label'], 'count' => (int)($counts[$k] ?? 0)];
 
+    $indCounts = $pdo->query("SELECT industry, COUNT(*) c FROM leads GROUP BY industry")
+                     ->fetchAll(PDO::FETCH_KEY_PAIR);
+    $industries = [];
+    foreach (INDUSTRIES as $k => $label)
+        $industries[$k] = ['label' => $label, 'count' => (int)($indCounts[$k] ?? 0)];
+
     // Due today or overdue, and what's coming up.
     $dueNow = $pdo->prepare("
         SELECT e.*, l.name, l.phone, l.city FROM events e JOIN leads l ON l.id=e.lead_id
@@ -137,6 +143,7 @@ case 'bootstrap': {
 
     json_out([
         'stages'   => $stages,
+        'industries' => $industries,
         'total'    => (int)$pdo->query("SELECT COUNT(*) FROM leads")->fetchColumn(),
         'due'      => $dueNow->fetchAll(),
         'upcoming' => $upcoming->fetchAll(),
@@ -150,16 +157,30 @@ case 'bootstrap': {
    then anything that has gone quiet. */
 case 'queue': {
     $stage = $in['stage'] ?? 'new';
+    $industry = (string)($in['industry'] ?? '');
+    if (!isset(INDUSTRIES[$industry])) $industry = '';
     /* The page size is an implementation detail; the header must show how many
        leads are actually in the stage or "1 of 50" reads as a cap on the list. */
-    $cnt = $pdo->prepare("SELECT COUNT(*) FROM leads WHERE stage = ?");
-    $cnt->execute([$stage]);
+    if ($industry !== '') {
+        $cnt = $pdo->prepare("SELECT COUNT(*) FROM leads WHERE stage = ? AND industry = ?");
+        $cnt->execute([$stage, $industry]);
+    } else {
+        $cnt = $pdo->prepare("SELECT COUNT(*) FROM leads WHERE stage = ?");
+        $cnt->execute([$stage]);
+    }
     $stageTotal = (int)$cnt->fetchColumn();
 
-    $s = $pdo->prepare("
-        SELECT * FROM leads WHERE stage = ?
-        ORDER BY (last_call_at = 0) DESC, last_call_at ASC, seq ASC LIMIT 200");
-    $s->execute([$stage]);
+    if ($industry !== '') {
+        $s = $pdo->prepare("
+            SELECT * FROM leads WHERE stage = ? AND industry = ?
+            ORDER BY (last_call_at = 0) DESC, last_call_at ASC, seq ASC LIMIT 200");
+        $s->execute([$stage, $industry]);
+    } else {
+        $s = $pdo->prepare("
+            SELECT * FROM leads WHERE stage = ?
+            ORDER BY (last_call_at = 0) DESC, last_call_at ASC, seq ASC LIMIT 200");
+        $s->execute([$stage]);
+    }
     $rows = $s->fetchAll();
     $act = $pdo->prepare("SELECT ts,type,body FROM activities WHERE lead_id=? ORDER BY ts DESC LIMIT 6");
     foreach ($rows as &$r) {
@@ -176,7 +197,14 @@ case 'queue': {
                          ORDER BY e.starts_at ASC LIMIT 3");
     $up->execute([time() - 3600]);
 
-    json_out(['leads' => $rows, 'next_up' => $up->fetchAll(), 'stage_total' => $stageTotal]);
+    // Per-industry counts for this stage only, so the filter bar matches the list.
+    $ic = $pdo->prepare("SELECT industry, COUNT(*) FROM leads WHERE stage=? GROUP BY industry");
+    $ic->execute([$stage]);
+    $industryCounts = [];
+    foreach ($ic->fetchAll(PDO::FETCH_KEY_PAIR) as $k => $v) $industryCounts[$k] = (int)$v;
+
+    json_out(['leads' => $rows, 'next_up' => $up->fetchAll(), 'stage_total' => $stageTotal,
+              'industry_counts' => $industryCounts]);
 }
 
 case 'lead': {
@@ -816,16 +844,22 @@ case 'new_lead': {
 
     $site = preg_replace('~^https?://~i', '', rtrim(trim((string)($in['website'] ?? '')), '/. '));
 
+    /* Trust an explicit industry from the sheet; otherwise derive it from the
+       raw service so a hand-added lead is grouped like an imported one. */
+    $service  = trim((string)($in['service'] ?? ''));
+    $industry = (string)($in['industry'] ?? '');
+    if (!isset(INDUSTRIES[$industry])) $industry = industry_for_service($service);
+
     $id = 'l_' . substr(bin2hex(random_bytes(6)), 0, 8);
     $pdo->prepare("INSERT INTO leads
-        (id,name,phone,email,contact,service,city,address,stage,reason,next_action,
+        (id,name,phone,email,contact,service,industry,city,address,stage,reason,next_action,
          owner,value,attempts,vm_count,seq,last_call_at,first_vm_at,called_back_at,
          passed_at,created_at,updated_at,website,socials)
-        VALUES (?,?,?,?,?,?,?,?,?,?,'','',0,0,0,0,0,0,0,0,?,?,?,?)")
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,'','',0,0,0,0,0,0,0,0,?,?,?,?)")
         ->execute([$id, $name,
                    trim((string)($in['phone'] ?? '')), $email,
                    trim((string)($in['contact'] ?? '')),
-                   trim((string)($in['service'] ?? '')),
+                   $service, $industry,
                    trim((string)($in['city'] ?? '')),
                    trim((string)($in['address'] ?? '')),
                    (string)($in['stage'] ?? 'new'),
@@ -846,10 +880,15 @@ case 'profile': {
     $id = (string)($in['id'] ?? '');
     if (!lead_row($pdo, $id)) json_out(['error' => 'not found'], 404);
     $site = preg_replace('~^https?://~i', '', rtrim(trim((string)($in['website'] ?? '')), '/. '));
-    $pdo->prepare("UPDATE leads SET pain_points=?, opportunity=?, website=?, socials=?, updated_at=? WHERE id=?")
-        ->execute([trim((string)($in['pain_points'] ?? '')),
-                   trim((string)($in['opportunity'] ?? '')),
-                   $site, trim((string)($in['socials'] ?? '')), $now, $id]);
+    $set  = "pain_points=?, opportunity=?, website=?, socials=?";
+    $vals = [trim((string)($in['pain_points'] ?? '')),
+             trim((string)($in['opportunity'] ?? '')),
+             $site, trim((string)($in['socials'] ?? ''))];
+    // A missing or bad industry leaves the stored value alone rather than blanking it.
+    $industry = (string)($in['industry'] ?? '');
+    if (isset(INDUSTRIES[$industry])) { $set .= ", industry=?"; $vals[] = $industry; }
+    $set .= ", updated_at=?"; $vals[] = $now; $vals[] = $id;
+    $pdo->prepare("UPDATE leads SET $set WHERE id=?")->execute($vals);
     json_out(['ok' => true]);
 }
 

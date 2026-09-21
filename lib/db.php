@@ -7,6 +7,7 @@
  */
 
 require_once __DIR__ . '/paths.php';
+require_once __DIR__ . '/config.php';
 
 function db(): PDO {
     static $pdo = null;
@@ -214,5 +215,24 @@ function migrate(PDO $pdo): void {
         $pdo->exec("CREATE INDEX idx_pjob_lead ON proposal_jobs(lead_id, id DESC)");
         $pdo->exec("INSERT OR REPLACE INTO schema_meta (k,v) VALUES ('version','8')");
         $cur = 8;
+    }
+
+    if ($cur < 9) {
+        /* The imported `service` string has around fifty distinct values, so
+           filtering on it is hopeless. Industry is a stored column rather than
+           a lookup at query time — it can be corrected per lead, indexed, and
+           grouped without re-deriving it on every read. */
+        $pdo->exec("ALTER TABLE leads ADD COLUMN industry TEXT NOT NULL DEFAULT ''");
+        $pdo->exec("CREATE INDEX idx_leads_industry ON leads(industry)");
+
+        // One pass over the existing rows so nothing is left ungrouped.
+        $pdo->beginTransaction();
+        $rows = $pdo->query("SELECT id, service FROM leads")->fetchAll();
+        $upd  = $pdo->prepare("UPDATE leads SET industry=? WHERE id=?");
+        foreach ($rows as $r) $upd->execute([industry_for_service((string)$r['service']), $r['id']]);
+        $pdo->commit();
+
+        $pdo->exec("INSERT OR REPLACE INTO schema_meta (k,v) VALUES ('version','9')");
+        $cur = 9;
     }
 }

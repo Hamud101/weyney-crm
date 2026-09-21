@@ -130,6 +130,7 @@ body.gate{display:grid;place-items:center;overflow:auto}
 .qmeta b{color:var(--ink);font-weight:600}
 .tag{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.06em;
   text-transform:uppercase;padding:3px 8px;border-radius:20px;background:var(--s2);color:var(--soft)}
+.tag.ind{background:var(--line);color:var(--soft);margin-left:6px}
 
 .phone{margin:18px 0 0;font-size:29px;font-weight:700;letter-spacing:.005em}
 .phone a{color:var(--ink);text-decoration:none}
@@ -443,6 +444,7 @@ body.gate{display:grid;place-items:center;overflow:auto}
    it sits on every row and would otherwise shout over the names. */
 /* ---- Leads: one table, filtered by category ---- */
 .lbar{flex:none;display:flex;align-items:center;gap:10px;padding-bottom:12px}
+.ibar{margin-top:-4px}
 .lbar .lbl{font-size:11px;font-weight:700;letter-spacing:.07em;
   text-transform:uppercase;color:var(--faint)}
 .lpick{padding:7px 12px;border-radius:8px;border:1px solid var(--line);
@@ -463,7 +465,7 @@ body.gate{display:grid;place-items:center;overflow:auto}
 .ltable .ltname b{display:block;font-weight:650;font-size:14px;
   max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ltable .ltname span{color:var(--faint);font-size:12px}
-.ltable td:nth-child(4){white-space:nowrap}
+.ltable td:nth-child(5){white-space:nowrap}
 .ltable .ltdim{color:var(--soft)}
 .ltable td a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}
 .ltable td a:hover{border-bottom-color:var(--accent)}
@@ -478,6 +480,7 @@ body.gate{display:grid;place-items:center;overflow:auto}
 .sbadge.ok{background:var(--ok-wash);color:var(--ok)}
 .sbadge.warn{background:var(--warn-wash);color:var(--warn)}
 .sbadge.bad{background:var(--bad-wash);color:var(--bad)}
+.sbadge.ind{background:var(--line);color:var(--soft)}
 
 .rowstage{width:150px;padding:6px 9px;border-radius:7px;
   border:1px solid var(--line);background:var(--surface);color:var(--soft);

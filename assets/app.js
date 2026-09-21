@@ -6,7 +6,7 @@
 
   var app  = document.getElementById('app');
   var CSRF = app.dataset.csrf;
-  var S = { view: 'dash', stage: 'new', queue: [], i: 0, boot: null, sheet: null };
+  var S = { view: 'dash', stage: 'new', industry: '', queue: [], i: 0, boot: null, sheet: null };
 
   var ICON = {
     call:  '<svg viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.2.4 2.4.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.6 21 3 13.4 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1z"/></svg>',
@@ -28,13 +28,13 @@
     if (!h) return null;
     var p = h.split('/');
     var v = p[0];
-    if (v === 'call')   return { view: 'call', stage: p[1] || 'new' };
+    if (v === 'call')   return { view: 'call', stage: p[1] || 'new', industry: p[2] || '' };
     if (v === 'lead' && p[1]) return { view: 'detail', id: p[1] };
     if (['dash', 'cal', 'clients', 'leads'].indexOf(v) >= 0) return { view: v };
     return null;
   }
   function writeHash() {
-    var h = S.view === 'call'   ? 'call/' + S.stage
+    var h = S.view === 'call'   ? 'call/' + S.stage + (S.industry ? '/' + S.industry : '')
           : S.view === 'detail' ? 'lead/' + (S.detail ? S.detail.id : (S.detailId || ''))
           : S.view;
     if (('#' + h) !== location.hash) {
@@ -42,7 +42,7 @@
     }
   }
   function savePos() {
-    try { sessionStorage.setItem('crm_pos', JSON.stringify({ stage: S.stage, i: S.i })); } catch (e) {}
+    try { sessionStorage.setItem('crm_pos', JSON.stringify({ stage: S.stage, industry: S.industry, i: S.i })); } catch (e) {}
   }
   function loadPos() {
     try { return JSON.parse(sessionStorage.getItem('crm_pos') || 'null'); } catch (e) { return null; }
@@ -126,8 +126,11 @@
     });
   }
   function loadQueue() {
-    return api('queue', null, { stage: S.stage }).then(function (r) {
+    var qs = { stage: S.stage };
+    if (S.industry) qs.industry = S.industry;
+    return api('queue', null, qs).then(function (r) {
       S.queue = r.leads || []; S.nextUp = r.next_up || [];
+      S.industryCounts = r.industry_counts || {};
       S.stageTotal = r.stage_total || (r.leads || []).length; S.i = 0;
     });
   }
@@ -207,10 +210,34 @@
     return out + '</div>';
   }
 
+  /* Industry filter for the call view. Counts are for the current stage, and a
+     zero option stays hidden unless it is the one selected. */
+  function industryBar() {
+    var counts = S.industryCounts || {};
+    var total = Object.keys(counts).reduce(function (a, k) { return a + (+counts[k] || 0); }, 0);
+    var opts = '<option value=""' + (S.industry ? '' : ' selected') + '>' +
+               'All industries (' + total + ')</option>';
+    Object.keys(S.boot.industries).forEach(function (k) {
+      var n = +counts[k] || 0;
+      if (!n && S.industry !== k) return;
+      opts += '<option value="' + k + '"' + (S.industry === k ? ' selected' : '') + '>' +
+              esc(industryLabel(k)) + ' (' + n + ')</option>';
+    });
+    return '<div class="lbar ibar">' +
+      '<label class="lbl" for="q-ind">Industry</label>' +
+      '<select id="q-ind" class="lpick" data-qind="1">' + opts + '</select>' +
+      '</div>';
+  }
+
   /* ---------- views ---------- */
   function viewCall() {
-    var out = stageStrip();
-    if (!S.queue.length) return out + '<div class="panel"><div class="empty"><b>Nothing queued here</b>Pick another stage above.</div></div>';
+    var out = stageStrip() + industryBar();
+    if (!S.queue.length) {
+      var none = S.industry
+        ? '<b>Nothing queued here for ' + esc(industryLabel(S.industry)) + '</b>Pick another stage above.'
+        : '<b>Nothing queued here</b>Pick another stage above.';
+      return out + '<div class="panel"><div class="empty">' + none + '</div></div>';
+    }
     if (S.i >= S.queue.length) return out + '<div class="panel"><div class="empty"><b>Queue cleared</b>' + S.queue.length + ' worked in this stage.</div></div>';
 
     var l = S.queue[S.i];
@@ -221,8 +248,11 @@
     return out + '<div class="panel calls"><div class="qcard">' +
       '<div class="qleft">' +
         '<span class="tag">' + esc((S.boot.stages[l.stage] || {}).label || l.stage) + '</span>' +
+        '<span class="tag ind">' + esc(industryLabel(l.industry)) + '</span>' +
         '<div class="qwho" style="margin-top:9px">' + esc(l.name) + '</div>' +
-        '<div class="qmeta">' + esc(l.city || '—') +
+        '<div class="qmeta">' +
+          (l.service ? esc(l.service) + ' · ' : '') +
+          esc(l.city || '—') +
           (l.contact ? ' · <b>' + esc(l.contact) + '</b>' : '') +
           (l.attempts > 0 ? ' · ' + l.attempts + ' attempt' + (l.attempts > 1 ? 's' : '') : '') + '</div>' +
         (l.phone
@@ -280,6 +310,9 @@
                                   esc(prettyPhone(l.phone)) + '</a>']);
     if (l.email)   contacts.push(['Email', '<a href="mailto:' + esc(l.email) + '">' + esc(l.email) + '</a>']);
     if (l.city)    contacts.push(['Where', esc(l.city)]);
+    var ilabel = industryLabel(l.industry);
+    contacts.push(['Industry', ilabel + (l.service && l.service.toLowerCase() !== ilabel.toLowerCase()
+      ? ' <span class="muted">(' + esc(l.service) + ')</span>' : '')]);
 
     return '<div class="know">' +
       '<div class="sect">Who they are</div>' +
@@ -844,9 +877,30 @@
       opts += '<option value="' + g.key + '"' + (S.leadFilter === g.key ? ' selected' : '') +
               '>' + esc(g.label) + ' (' + n + ')</option>';
     });
+
+    /* Industry counts use the stage-filtered set, so the number beside a name
+       matches what picking it will show. */
+    var stageLeads = S.leads.filter(function (l) {
+      return !S.leadFilter || groupFor(l.stage).key === S.leadFilter;
+    });
+    var indCounts = {};
+    stageLeads.forEach(function (l) {
+      var k = l.industry || 'other'; indCounts[k] = (indCounts[k] || 0) + 1;
+    });
+    var iopts = '<option value=""' + (S.leadIndustry ? '' : ' selected') + '>' +
+                'All industries (' + stageLeads.length + ')</option>';
+    Object.keys(S.boot.industries).forEach(function (k) {
+      var n = indCounts[k] || 0;
+      if (!n && S.leadIndustry !== k) return;
+      iopts += '<option value="' + k + '"' + (S.leadIndustry === k ? ' selected' : '') + '>' +
+               esc(industryLabel(k)) + ' (' + n + ')</option>';
+    });
+
     return '<div class="lbar">' +
       '<label class="lbl" for="l-cat">Show</label>' +
       '<select id="l-cat" class="lpick" data-lstage="1">' + opts + '</select>' +
+      '<label class="lbl" for="l-ind">Industry</label>' +
+      '<select id="l-ind" class="lpick" data-lind="1">' + iopts + '</select>' +
       '<span class="grow"></span>' +
       (S.leadTotal > S.leads.length
         ? '<span class="capnote">' + S.leads.length + ' most recently touched of ' +
@@ -865,7 +919,8 @@
       'Import a call list, or add one by hand with + Add lead.</div></div>';
 
     var rows = S.leads.filter(function (l) {
-      return !S.leadFilter || groupFor(l.stage).key === S.leadFilter;
+      return (!S.leadFilter || groupFor(l.stage).key === S.leadFilter) &&
+             (!S.leadIndustry || (l.industry || 'other') === S.leadIndustry);
     });
     /* The server already sorted by last touched; a stable sort by depth keeps
        that as the tie-break inside each stage. */
@@ -879,7 +934,7 @@
 
     return leadPicker() +
       '<div class="panel ltwrap"><table class="ltable"><thead><tr>' +
-        '<th>Business</th><th>Stage</th><th>Contact</th><th>Phone</th>' +
+        '<th>Business</th><th>Stage</th><th>Industry</th><th>Contact</th><th>Phone</th>' +
         '<th>Next / last touched</th><th class="thmove">Move to</th>' +
       '</tr></thead><tbody>' +
       shown.map(function (l) {
@@ -894,6 +949,8 @@
           '<td class="ltname"><b>' + esc(l.name) + '</b>' +
             (l.city ? '<span>' + esc(l.city) + '</span>' : '') + '</td>' +
           '<td><span class="sbadge ' + g.tone + '">' + esc(g.label) + '</span></td>' +
+          '<td><span class="sbadge ind"' + (l.service ? ' title="' + esc(l.service) + '"' : '') + '>' +
+            esc(industryLabel(l.industry)) + '</span></td>' +
           '<td class="ltdim">' + (l.contact ? esc(l.contact) : '—') + '</td>' +
           '<td>' + (l.phone
             ? '<a href="' + dialHref(l.phone) + '" target="_blank" rel="noopener" ' +
@@ -939,6 +996,14 @@
     }).join('');
   }
 
+  function industryLabel(k) { return (S.boot.industries[k] || {}).label || (k || 'Other'); }
+  function industryOptions(sel) {
+    return Object.keys(S.boot.industries).map(function (k) {
+      return '<option value="' + k + '"' + (k === sel ? ' selected' : '') + '>' +
+             esc(S.boot.industries[k].label) + '</option>';
+    }).join('');
+  }
+
   function sheet() {
     var k = S.sheet.kind;
     if (k === 'profile') {
@@ -951,6 +1016,8 @@
         '<label>Where we help</label>' +
         '<textarea id="pf-opp" rows="3" placeholder="Rebuild on a maintained platform; fix accessibility; local SEO">' +
           esc(l.opportunity || '') + '</textarea>' +
+        '<label>Industry</label>' +
+        '<select id="pf-industry" class="nbfield">' + industryOptions(l.industry || 'other') + '</select>' +
         '<label>Website</label><input id="pf-web" placeholder="theircompany.com" value="' +
           esc(l.website || '') + '">' +
         '<label>Social profiles <span class="opt">— only ones that exist</span></label>' +
@@ -970,6 +1037,8 @@
         '<label>Phone</label><input id="nl-phone" placeholder="612-555-0123">' +
         '<label>Email</label><input id="nl-email" type="email" placeholder="them@company.com">' +
         '<label>City</label><input id="nl-city" placeholder="Minneapolis">' +
+        '<label>Industry</label><select id="nl-industry" class="nbfield">' +
+          industryOptions('other') + '</select>' +
         '<label>Website</label><input id="nl-web" placeholder="theircompany.com">' +
         '<label>Social profiles <span class="opt">— paste URLs, comma separated</span></label>' +
         '<input id="nl-social" placeholder="facebook.com/theirpage, instagram.com/theirpage">' +
@@ -1341,7 +1410,7 @@
       el.onclick = function () { go({ view: el.dataset.tab }); };
     });
     app.querySelectorAll('[data-stage]').forEach(function (el) {
-      el.onclick = function () { go({ view: 'call', stage: el.dataset.stage }); };
+      el.onclick = function () { go({ view: 'call', stage: el.dataset.stage, industry: S.industry }); };
     });
     app.querySelectorAll('[data-out]').forEach(function (el) {
       el.onclick = function () { disposition(el.dataset.out); };
@@ -1464,6 +1533,12 @@
     });
     var lcat = document.getElementById('l-cat');
     if (lcat) lcat.onchange = function () { S.leadFilter = lcat.value; render(); };
+    var lind = document.getElementById('l-ind');
+    if (lind) lind.onchange = function () { S.leadIndustry = lind.value; render(); };
+    var qind = document.getElementById('q-ind');
+    if (qind) qind.onchange = function () {
+      go({ view: 'call', stage: S.stage, industry: qind.value });
+    };
     /* Move a lead without opening it — the one edit this list needs, because
        "they signed" is the change you make most often and it belongs next to
        the name. Moving to Won drops them off this list and into Clients. */
@@ -1665,6 +1740,7 @@
       api('profile', { id: l.id,
                        pain_points: document.getElementById('pf-pain').value,
                        opportunity: document.getElementById('pf-opp').value,
+                       industry:    document.getElementById('pf-industry').value,
                        website:     document.getElementById('pf-web').value.trim(),
                        socials:     document.getElementById('pf-social').value.trim() })
         .then(function (r) {
@@ -1690,6 +1766,7 @@
         phone:   document.getElementById('nl-phone').value.trim(),
         email:   document.getElementById('nl-email').value.trim(),
         city:    document.getElementById('nl-city').value.trim(),
+        industry: document.getElementById('nl-industry').value,
         website: document.getElementById('nl-web').value.trim(),
         socials: document.getElementById('nl-social').value.trim(),
         stage:   document.getElementById('nl-stage').value,
@@ -1870,6 +1947,9 @@
     if (target.view === 'detail' && S.view !== 'detail') S.from = S.view;
     S.view = target.view;
     if (target.stage && target.stage !== S.stage) { S.stage = target.stage; S.queue = []; S.i = 0; }
+    if (target.industry !== undefined && target.industry !== S.industry) {
+      S.industry = target.industry; S.queue = []; S.i = 0;
+    }
     if (target.view === 'detail') { S.detailId = target.id; if (!opts.keep) S.detail = null; }
     render();
 
@@ -1882,7 +1962,7 @@
     if (target.view === 'call') {
       return loadQueue().then(function () {
         var pos = loadPos();
-        if (pos && pos.stage === S.stage && pos.i < S.queue.length) S.i = pos.i;
+        if (pos && pos.stage === S.stage && (pos.industry || '') === S.industry && pos.i < S.queue.length) S.i = pos.i;
         render();
       });
     }

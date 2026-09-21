@@ -28,6 +28,45 @@ const STAGES = [
     'lost'        => ['label' => 'Lost',         'open' => false],
 ];
 
+/** The ten buckets we actually work in. Raw service strings are too fragmented
+ *  to filter on, so each lead also carries one of these. */
+const INDUSTRIES = [
+    'beauty'       => 'Beauty & personal care',
+    'health'       => 'Health & care',
+    'cleaning'     => 'Cleaning & laundry',
+    'food'         => 'Food & drink',
+    'retail'       => 'Retail',
+    'auto'         => 'Auto',
+    'trades'       => 'Trades & home services',
+    'professional' => 'Professional services',
+    'community'    => 'Community, sports & leisure',
+    'other'        => 'Other',
+];
+
+/* Raw import types (OSM-style tags) -> industry. Anything unmapped is 'other'. */
+const SERVICE_INDUSTRY = [
+    'hairdresser' => 'beauty', 'beauty' => 'beauty', 'massage' => 'beauty', 'tattoo' => 'beauty',
+    'dentist' => 'health', 'clinic' => 'health', 'doctor' => 'health', 'psychotherapist' => 'health',
+    'autism care' => 'health', 'alternative' => 'health', 'healthcare' => 'health',
+    'rehabilitation' => 'health', 'optician' => 'health', 'childcare' => 'health', 'veterinary' => 'health',
+    'cleaning' => 'cleaning', 'dry cleaning' => 'cleaning', 'laundry' => 'cleaning',
+    'restaurant' => 'food', 'cafe' => 'food', 'fast food' => 'food',
+    'antiques' => 'retail', 'clothes' => 'retail', 'gift' => 'retail', 'furniture' => 'retail',
+    'jewelry' => 'retail', 'second hand' => 'retail', 'toys' => 'retail', 'convenience' => 'retail',
+    'doityourself' => 'retail', 'frame' => 'retail', 'mobile phone' => 'retail', 'pet' => 'retail',
+    'photo' => 'retail', 'shoemaker' => 'retail', 'sports' => 'retail',
+    'car repair' => 'auto', 'driving school' => 'auto',
+    'construction' => 'trades', 'handyman' => 'trades', 'trade' => 'trades', 'storage rental' => 'trades',
+    'accountant' => 'professional', 'lawyer' => 'professional', 'financial' => 'professional',
+    'estate agent' => 'professional', 'company' => 'professional',
+    'masjid' => 'community', 'youth sports' => 'community', 'sports centre' => 'community',
+    'amusement arcade' => 'community',
+];
+
+function industry_for_service(string $service): string {
+    return SERVICE_INDUSTRY[strtolower(trim($service))] ?? 'other';
+}
+
 function json_out($data, int $code = 200): void {
     http_response_code($code);
     header('Content-Type: application/json; charset=utf-8');
