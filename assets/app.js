@@ -214,9 +214,11 @@
      zero option stays hidden unless it is the one selected. */
   function industryBar() {
     var counts = S.industryCounts || {};
-    var total = Object.keys(counts).reduce(function (a, k) { return a + (+counts[k] || 0); }, 0);
+    /* The number here is how many industries are in play, not how many leads —
+       the lead count already sits on the stage pill. */
+    var kinds = Object.keys(counts).filter(function (k) { return +counts[k] > 0; }).length;
     var opts = '<option value=""' + (S.industry ? '' : ' selected') + '>' +
-               'All industries (' + total + ')</option>';
+               'All industries (' + kinds + ')</option>';
     Object.keys(S.boot.industries).forEach(function (k) {
       var n = +counts[k] || 0;
       if (!n && S.industry !== k) return;
@@ -888,7 +890,7 @@
       var k = l.industry || 'other'; indCounts[k] = (indCounts[k] || 0) + 1;
     });
     var iopts = '<option value=""' + (S.leadIndustry ? '' : ' selected') + '>' +
-                'All industries (' + stageLeads.length + ')</option>';
+                'All industries (' + Object.keys(indCounts).length + ')</option>';
     Object.keys(S.boot.industries).forEach(function (k) {
       var n = indCounts[k] || 0;
       if (!n && S.leadIndustry !== k) return;
