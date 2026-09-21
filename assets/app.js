@@ -131,6 +131,7 @@
     return api('queue', null, qs).then(function (r) {
       S.queue = r.leads || []; S.nextUp = r.next_up || [];
       S.industryCounts = r.industry_counts || {};
+      S.stageCounts    = S.industry ? (r.stage_counts || {}) : null;
       S.stageTotal = r.stage_total || (r.leads || []).length; S.i = 0;
     });
   }
@@ -168,7 +169,8 @@
     if (S.view === 'call' && S.queue.length) {
       ctx += ' <span class="dim">lead ' + Math.min(S.i + 1, S.queue.length) +
              ' of ' + (S.stageTotal || S.queue.length) + ' in ' +
-             esc((S.boot.stages[S.stage] || {}).label || S.stage) + '</span>';
+             esc((S.boot.stages[S.stage] || {}).label || S.stage) +
+             (S.industry ? ' · ' + esc(industryLabel(S.industry)) : '') + '</span>';
     }
     if (S.view === 'leads' && S.leads) {
       ctx += ' <span class="dim">' + S.leads.length +
@@ -200,12 +202,15 @@
       '</div>';
   }
 
+  /* With an industry selected the pills count that industry only, so the strip
+     answers "where are my beauty leads" rather than "where is everyone". */
   function stageStrip() {
     var st = S.boot.stages, out = '<div class="stages">';
     Object.keys(st).forEach(function (k) {
-      if (!st[k].count && k !== S.stage) return;
+      var n = S.stageCounts ? (S.stageCounts[k] || 0) : st[k].count;
+      if (!n && k !== S.stage) return;
       out += '<button data-stage="' + k + '" class="' + (S.stage === k ? 'on' : '') + '">' +
-             esc(st[k].label) + '<i>' + st[k].count + '</i></button>';
+             esc(st[k].label) + '<i>' + n + '</i></button>';
     });
     return out + '</div>';
   }

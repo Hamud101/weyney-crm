@@ -212,8 +212,16 @@ case 'queue': {
     $industryCounts = [];
     foreach ($ic->fetchAll(PDO::FETCH_KEY_PAIR) as $k => $v) $industryCounts[$k] = (int)$v;
 
+    // And per-stage counts for this industry, so the stage pills match the filter.
+    $stageCounts = [];
+    if ($industry !== '') {
+        $sc = $pdo->prepare("SELECT stage, COUNT(*) FROM leads WHERE industry=? GROUP BY stage");
+        $sc->execute([$industry]);
+        foreach ($sc->fetchAll(PDO::FETCH_KEY_PAIR) as $k => $v) $stageCounts[$k] = (int)$v;
+    }
+
     json_out(['leads' => $rows, 'next_up' => $up->fetchAll(), 'stage_total' => $stageTotal,
-              'industry_counts' => $industryCounts]);
+              'industry_counts' => $industryCounts, 'stage_counts' => $stageCounts]);
 }
 
 case 'lead': {
