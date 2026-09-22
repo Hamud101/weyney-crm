@@ -1077,10 +1077,10 @@
       return '<div class="sheet-bg" data-close="1"><div class="sheet">' +
         '<h3>What we know</h3><div class="who">' + esc(l.name) + '</div>' +
         '<label>Pain points <span class="opt">— one per line</span></label>' +
-        '<textarea id="pf-pain" rows="7" placeholder="Phone users can\'t zoom in\nInvisible on Google for autism searches">' +
+        '<textarea id="pf-pain" rows="7" placeholder="One per line — only what you saw or they said">' +
           esc(l.pain_points || '') + '</textarea>' +
         '<label>Where we help</label>' +
-        '<textarea id="pf-opp" rows="3" placeholder="Rebuild on a maintained platform; fix accessibility; local SEO">' +
+        '<textarea id="pf-opp" rows="3" placeholder="What we would do for them, in one line">' +
           esc(l.opportunity || '') + '</textarea>' +
         '<label>Industry</label>' +
         '<select id="pf-industry" class="nbfield">' + industryOptions(l.industry || 'other') + '</select>' +
