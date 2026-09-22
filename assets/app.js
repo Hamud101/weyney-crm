@@ -341,11 +341,32 @@
       '</div>';
   }
 
+  function sevBadge(sev) {
+    sev = Number(sev) || 0;
+    if (sev === 1) return { tone: 'bad',  label: 'Watched it fail' };
+    if (sev === 2) return { tone: 'warn', label: 'Weak or unproven' };
+    return { tone: 'info', label: 'Unverified' };
+  }
+
   function helpPanel(l) {
     var pains = (l.pain_points || '').split('\n').map(function (x) { return x.trim(); }).filter(Boolean);
     var opp   = (l.opportunity || '').trim();
-    return '<div class="know">' +
-      '<div class="sect2 first">Where we help<button class="editlink" data-editprofile="1">edit</button></div>' +
+
+    /* The pipeline's watched defect is the reason for the call, so it leads
+       the panel, above the profile he edits by hand. */
+    var why = '';
+    if (l.defect) {
+      var sb = sevBadge(l.severity);
+      why = '<div class="sect2 first">Why we\'re calling <span class="sbadge ' + sb.tone + '">' +
+            esc(sb.label) + '</span></div>' +
+            '<div class="why"><b>' + esc(l.defect) + '</b>' +
+            (l.pitch ? '<p>' + esc(l.pitch) + '</p>' : '') +
+            '<span class="whysrc">' + esc(l.source || '') +
+            (l.website ? ' · ' + esc(l.website) : '') + '</span></div>';
+    }
+
+    return '<div class="know">' + why +
+      '<div class="sect2' + (why ? '' : ' first') + '">Where we help<button class="editlink" data-editprofile="1">edit</button></div>' +
       (opp ? '<div class="opp">' + esc(opp) + '</div>'
            : '<div class="muted">Nothing yet — click edit.</div>') +
       '<div class="sect2">Pain points</div>' +
@@ -903,11 +924,34 @@
                esc(industryLabel(k)) + ' (' + n + ')</option>';
     });
 
+    /* Defect counts use the stage+industry-filtered set, same rule as the
+       industry counts above. */
+    var siLeads = stageLeads.filter(function (l) {
+      return !S.leadIndustry || (l.industry || 'other') === S.leadIndustry;
+    });
+    var defCounts = {}, defNone = 0;
+    siLeads.forEach(function (l) {
+      if (l.defect) defCounts[l.defect] = (defCounts[l.defect] || 0) + 1;
+      else defNone++;
+    });
+    var dopts = '<option value=""' + (S.leadDefect ? '' : ' selected') + '>' +
+                'All (' + siLeads.length + ')</option>';
+    Object.keys(defCounts).sort(function (a, b) { return defCounts[b] - defCounts[a]; })
+      .forEach(function (d) {
+        dopts += '<option value="' + esc(d) + '"' + (S.leadDefect === d ? ' selected' : '') + '>' +
+                 esc(d) + ' (' + defCounts[d] + ')</option>';
+      });
+    if (defNone)
+      dopts += '<option value="__none__"' + (S.leadDefect === '__none__' ? ' selected' : '') + '>' +
+               'No pipeline data (' + defNone + ')</option>';
+
     return '<div class="lbar">' +
       '<label class="lbl" for="l-cat">Show</label>' +
       '<select id="l-cat" class="lpick" data-lstage="1">' + opts + '</select>' +
       '<label class="lbl" for="l-ind">Industry</label>' +
       '<select id="l-ind" class="lpick" data-lind="1">' + iopts + '</select>' +
+      '<label class="lbl" for="l-def">Defect</label>' +
+      '<select id="l-def" class="lpick" data-ldef="1">' + dopts + '</select>' +
       '<span class="grow"></span>' +
       (S.leadTotal > S.leads.length
         ? '<span class="capnote">' + S.leads.length + ' most recently touched of ' +
@@ -927,7 +971,8 @@
 
     var rows = S.leads.filter(function (l) {
       return (!S.leadFilter || groupFor(l.stage).key === S.leadFilter) &&
-             (!S.leadIndustry || (l.industry || 'other') === S.leadIndustry);
+             (!S.leadIndustry || (l.industry || 'other') === S.leadIndustry) &&
+             (!S.leadDefect || (S.leadDefect === '__none__' ? !l.defect : l.defect === S.leadDefect));
     });
     /* The server already sorted by last touched; a stable sort by depth keeps
        that as the tie-break inside each stage. */
@@ -954,7 +999,8 @@
             (l.last_ts ? 'touched ' + stamp(l.last_ts) : 'never touched') + '</span>';
         return '<tr class="click" data-openlead="' + esc(l.id) + '">' +
           '<td class="ltname"><b>' + esc(l.name) + '</b>' +
-            (l.city ? '<span>' + esc(l.city) + '</span>' : '') + '</td>' +
+            (l.city ? '<span>' + esc(l.city) + '</span>' : '') +
+            (l.defect ? '<em class="ltdef ' + sevBadge(l.severity).tone + '">' + esc(l.defect) + '</em>' : '') + '</td>' +
           '<td><span class="sbadge ' + g.tone + '">' + esc(g.label) + '</span></td>' +
           '<td><span class="sbadge ind"' + (l.service ? ' title="' + esc(l.service) + '"' : '') + '>' +
             esc(industryLabel(l.industry)) + '</span></td>' +
@@ -1553,6 +1599,8 @@
     if (lcat) lcat.onchange = function () { S.leadFilter = lcat.value; render(); };
     var lind = document.getElementById('l-ind');
     if (lind) lind.onchange = function () { S.leadIndustry = lind.value; render(); };
+    var ldef = document.getElementById('l-def');
+    if (ldef) ldef.onchange = function () { S.leadDefect = ldef.value; render(); };
     var qind = document.getElementById('q-ind');
     if (qind) qind.onchange = function () {
       go({ view: 'call', stage: S.stage, industry: qind.value });

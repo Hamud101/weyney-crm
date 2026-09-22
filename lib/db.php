@@ -235,4 +235,18 @@ function migrate(PDO $pdo): void {
         $pdo->exec("INSERT OR REPLACE INTO schema_meta (k,v) VALUES ('version','9')");
         $cur = 9;
     }
+    if ($cur < 10) {
+        /* Where a lead came from and why it is worth a call. The pipeline
+           watches each website fail and writes the defect it saw; that used
+           to live as prose in an activity note, which nothing could filter
+           or show at a glance. severity 1 = watched it fail, 2 = weak or
+           unproven, 3 = fine or unknown; 0 = not from the pipeline. */
+        $pdo->exec("ALTER TABLE leads ADD COLUMN source   TEXT    NOT NULL DEFAULT ''");
+        $pdo->exec("ALTER TABLE leads ADD COLUMN defect   TEXT    NOT NULL DEFAULT ''");
+        $pdo->exec("ALTER TABLE leads ADD COLUMN pitch    TEXT    NOT NULL DEFAULT ''");
+        $pdo->exec("ALTER TABLE leads ADD COLUMN severity INTEGER NOT NULL DEFAULT 0");
+        $pdo->exec("CREATE INDEX idx_leads_defect ON leads(defect)");
+        $pdo->exec("INSERT OR REPLACE INTO schema_meta (k,v) VALUES ('version','10')");
+        $cur = 10;
+    }
 }

@@ -868,11 +868,12 @@ case 'new_lead': {
     if ($industry === '') $industry = industry_for_service($service);
 
     $id = 'l_' . substr(bin2hex(random_bytes(6)), 0, 8);
+    $src = trim((string)($in['source'] ?? ''));
     $pdo->prepare("INSERT INTO leads
         (id,name,phone,email,contact,service,industry,city,address,stage,reason,next_action,
          owner,value,attempts,vm_count,seq,last_call_at,first_vm_at,called_back_at,
-         passed_at,created_at,updated_at,website,socials)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,'','',0,0,0,0,0,0,0,0,?,?,?,?)")
+         passed_at,created_at,updated_at,website,socials,source,defect,pitch,severity)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,'','',0,0,0,0,0,0,0,0,?,?,?,?,?,?,?,?)")
         ->execute([$id, $name,
                    trim((string)($in['phone'] ?? '')), $email,
                    trim((string)($in['contact'] ?? '')),
@@ -882,9 +883,12 @@ case 'new_lead': {
                    (string)($in['stage'] ?? 'new'),
                    trim((string)($in['reason'] ?? '')),
                    $now, $now, $site,
-                   trim((string)($in['socials'] ?? ''))]);
+                   trim((string)($in['socials'] ?? '')),
+                   $src,
+                   trim((string)($in['defect'] ?? '')),
+                   trim((string)($in['pitch'] ?? '')),
+                   (int)($in['severity'] ?? 0)]);
 
-    $src = trim((string)($in['source'] ?? ''));
     log_act($pdo, $id, 'note', 'Added manually' . ($src !== '' ? ' — ' . $src : ''));
     json_out(['ok' => true, 'id' => $id]);
 }
