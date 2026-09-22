@@ -612,7 +612,7 @@ body.gate{display:grid;place-items:center;overflow:auto}
 .whysrc{display:block;margin-top:6px;font-size:12px;color:var(--faint)}
 .sect2 .sbadge{margin-left:8px;letter-spacing:0;text-transform:none;font-weight:600}
 .ltdef{display:block;margin-top:3px;font-style:normal;font-size:11.5px}
-.ltdef.bad{color:var(--bad)} .ltdef.warn{color:var(--warn)} .ltdef.info{color:var(--info)}
+.ltdef.bad{color:var(--bad)} .ltdef.warn{color:var(--warn)} .ltdef.info{color:var(--info)} .ltdef.ok{color:var(--ok)}
 
 /* ---- activity log: out of the way until wanted ---- */
 .logwrap{margin-top:22px;border-top:1px solid var(--line);padding-top:12px}

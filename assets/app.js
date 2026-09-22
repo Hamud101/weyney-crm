@@ -345,6 +345,8 @@
     sev = Number(sev) || 0;
     if (sev === 1) return { tone: 'bad',  label: 'Watched it fail' };
     if (sev === 2) return { tone: 'warn', label: 'Weak or unproven' };
+    if (sev === 3) return { tone: 'ok',   label: 'Site loads fine' };
+    if (sev === 4) return { tone: 'info', label: 'Review gap' };
     return { tone: 'info', label: 'Unverified' };
   }
 
