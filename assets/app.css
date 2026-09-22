@@ -390,8 +390,12 @@ body.gate{display:grid;place-items:center;overflow:auto}
 /* client rows open a record */
 .item.click{cursor:pointer}
 .item.click:hover{border-color:var(--accent);background:var(--s2)}
-.backlink{margin-bottom:12px;font-size:13px;font-weight:600;color:var(--soft);padding:6px 0}
-.backlink:hover{color:var(--ink)}
+/* Left-aligned on its own: .body is a flex column, so without align-self the
+   button stretched the full width and its label sat dead centre. */
+.backlink{align-self:flex-start;margin-bottom:12px;font-size:13px;font-weight:700;
+  color:var(--info);background:var(--info-wash);border:1px solid #cddbf0;
+  border-radius:20px;padding:6px 14px}
+.backlink:hover{background:#dce6f6;border-color:var(--info)}
 
 
 /* connection state — Calendar view only, in the header */
