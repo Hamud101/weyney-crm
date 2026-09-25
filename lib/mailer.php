@@ -43,20 +43,30 @@ class Smtp {
         $user = cfg('smtp_user'); $pass = cfg('smtp_pass');
         $from = cfg('smtp_from', $user);
 
-        if (!$pass) return [false, 'SMTP password not configured', []];
+        if (!$pass) return [false, 'SMTP password not configured', [], false];
+
+        // Addresses go into RCPT TO and the headers verbatim, so a line break
+        // or angle bracket would let the caller write commands or headers.
+        foreach (['recipient' => $to, 'reply-to' => $replyTo] as $what => $addr) {
+            if ($addr !== '' && preg_match('/[\x00-\x1F\x7F<>]/', $addr)) {
+                return [false, "invalid $what address", [], false];
+            }
+        }
+        if ($to === '') return [false, 'invalid recipient address', [], false];
+        $subject = trim(preg_replace('/[\x00-\x1F\x7F]+/', ' ', $subject) ?? '');
 
         // Read the attachments before saying hello, so a missing file fails
         // here rather than half way through a DATA command.
         try {
             [$contentHeaders, $mimeBody] = $this->compose($body, $attachments);
         } catch (Throwable $e) {
-            return [false, $e->getMessage(), []];
+            return [false, $e->getMessage(), [], false];
         }
 
         $ctx = stream_context_create(['ssl' => ['verify_peer' => true, 'verify_peer_name' => true]]);
         $this->fp = @stream_socket_client("ssl://$host:$port", $errno, $errstr, 20,
                                           STREAM_CLIENT_CONNECT, $ctx);
-        if (!$this->fp) return [false, "connect failed: $errstr", []];
+        if (!$this->fp) return [false, "connect failed: $errstr", [], false];
         stream_set_timeout($this->fp, 20);
 
         try {
@@ -150,10 +160,13 @@ class Smtp {
         return [['Content-Type: multipart/mixed; boundary="' . $b . '"'], $out];
     }
 
+    /* Control characters are gone by now (send() strips them); encoding every
+       subject as well means no raw user text ever sits in the header block. */
     private function encodeHeader(string $s): string {
-        return preg_match('/[\x80-\xFF]/', $s)
-            ? '=?UTF-8?B?' . base64_encode($s) . '?='
-            : $s;
+        if (function_exists('mb_encode_mimeheader')) {
+            return mb_encode_mimeheader($s, 'UTF-8', 'B', "\r\n");
+        }
+        return '=?UTF-8?B?' . base64_encode($s) . '?=';
     }
 }
 
