@@ -515,7 +515,69 @@
           }).join('') + '</div></div>'
       : '';
 
-    return cards + nudge + daily + '<div style="margin-top:14px">' + sched + '</div>' +
+    /* Free audit leads from weyney.com: whoever filled in the form and has not
+       been called yet is the hottest thing on this page. */
+    var auditsHtml = '';
+    (function () {
+      var leads = d.audit_leads || [];
+      var sum = d.audit_summary || { total: 0, week: 0, answered: 0, waiting: 0 };
+
+      var body;
+      if (!leads.length) {
+        body = '<div class="bars"><div class="barsempty">When someone starts the free ' +
+          'audit on weyney.com, they show up here with their answers, hottest first.</div></div>';
+      } else {
+        body = '<div class="list flush">' + leads.map(function (l) {
+          var chips = '';
+          chips += l.called
+            ? '<span class="chip ok">Called ' + stamp(l.last_call_ts) + '</span>'
+            : '<span class="chip hot">Not called yet</span>';
+          chips += l.answered_ts
+            ? '<span class="chip">Answers in</span>'
+            : '<span class="chip muted">Details only</span>';
+          if (l.best_time) chips += '<span class="chip">Best time: ' + esc(l.best_time) + '</span>';
+
+          var ans = [];
+          if (l.volume) ans.push('Inquiries: ' + esc(l.volume));
+          if (l.speed)  ans.push('Replies: ' + esc(l.speed));
+          if (l.spend)  ans.push('Ad spend: ' + esc(l.spend));
+
+          var who = esc(l.name || '') +
+            (l.contact ? '<span class="acontact"> \u00b7 ' + esc(l.contact) + '</span>' : '') +
+            (l.city ? '<span class="acontact"> \u00b7 ' + esc(l.city) + '</span>' : '');
+
+          return '<div class="arow click" data-openlead="' + esc(l.id) + '">' +
+            '<div class="amain">' +
+              '<div class="aname">' + who + '</div>' +
+              '<div class="achips">' + chips + '</div>' +
+              (ans.length ? '<div class="aans">' + ans.join(' \u00b7 ') + '</div>' : '') +
+              (l.fix ? '<div class="afix">Wants fixed: \u201c' + esc(l.fix) + '\u201d</div>' : '') +
+            '</div>' +
+            '<div class="aside">' +
+              '<div class="awhen">' + stamp(l.answered_ts || l.started_ts) + '</div>' +
+              (l.phone ? '<a class="acall" href="' + dialHref(l.phone) + '" target="_blank" rel="noopener" ' +
+                'onclick="event.stopPropagation()">' + prettyPhone(l.phone) + '</a>' : '') +
+            '</div>' +
+          '</div>';
+        }).join('') + '</div>';
+      }
+
+      var strip = leads.length
+        ? '<div class="asum">' +
+            '<span><b>' + sum.week + '</b> this week</span>' +
+            '<span><b>' + sum.answered + '</b> answered</span>' +
+            '<span' + (sum.waiting > 0 ? ' class="warn"' : '') + '><b>' + sum.waiting +
+              '</b> waiting on a call</span>' +
+            '<span><b>' + sum.total + '</b> total</span>' +
+          '</div>'
+        : '';
+
+      auditsHtml = '<div class="panel audits" style="margin-top:14px">' +
+        '<div class="phead">Free audit leads <span class="pnote">hottest first</span></div>' +
+        strip + body + '</div>';
+    })();
+
+    return cards + auditsHtml + nudge + daily + '<div style="margin-top:14px">' + sched + '</div>' +
       (demopanel ? '<div style="margin-top:14px">' + demopanel + '</div>' : '') +
       '<div class="split" style="margin-top:14px">' + funnel + outcomes + '</div>' +
       '<div class="split" style="margin-top:14px">' + besttime + stale + '</div>';

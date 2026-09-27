@@ -753,6 +753,111 @@ case 'stats': {
                          ->execute() ?: 0;
     $u = $pdo->query("SELECT COUNT(*) FROM events WHERE status='scheduled'"); $upcoming = (int)$u->fetchColumn();
 
+    /* Free audit leads from weyney.com. Someone who started the audit and has
+       not been called yet is the hottest thing on this page, so rank them. */
+    $auditRows = $pdo->query("
+        SELECT l.id, l.name, l.contact, l.phone, l.city, l.stage,
+               l.pain_points, l.opportunity, l.next_action, l.created_at,
+               COALESCE((SELECT MIN(a.ts) FROM activities a
+                          WHERE a.lead_id=l.id AND a.body LIKE 'Free audit started at%'),
+                        l.created_at) AS started_ts,
+               (SELECT MAX(a.ts) FROM activities a
+                 WHERE a.lead_id=l.id AND a.body LIKE 'Free audit answers from the website%') AS answered_ts,
+               (SELECT MAX(a.ts) FROM activities a
+                 WHERE a.lead_id=l.id AND a.type='call') AS last_call_ts,
+               (SELECT COUNT(*) FROM activities a
+                 WHERE a.lead_id=l.id AND a.type='call'
+                   AND a.ts >= COALESCE((SELECT MIN(b.ts) FROM activities b
+                          WHERE b.lead_id=l.id AND b.body LIKE 'Free audit started at%'),
+                        l.created_at)) AS calls_since
+        FROM leads l
+        WHERE l.stage NOT IN ('won','lost')
+          AND (l.reason LIKE 'Website: free audit%'
+            OR l.next_action LIKE 'Call now: audit%'
+            OR EXISTS (SELECT 1 FROM activities a WHERE a.lead_id=l.id
+                        AND (a.body LIKE 'Free audit started at%'
+                          OR a.body LIKE 'Free audit answers from the website%')))
+    ")->fetchAll();
+
+    /* Pull one labelled answer out of the "Label: value" lines the form writes.
+       Search both answer fields so the source of each label never matters. */
+    $pick = function ($text, $label) {
+        foreach (preg_split('/\r\n|\r|\n/', (string)$text) as $line) {
+            if (strpos($line, $label) === 0) return trim(substr($line, strlen($label)));
+        }
+        return '';
+    };
+
+    $nowA = time();
+    $auditAll = [];
+    foreach ($auditRows as $r) {
+        $started  = (int)$r['started_ts'];
+        $answered = $r['answered_ts'] !== null ? (int)$r['answered_ts'] : null;
+        $lastCall = $r['last_call_ts'] !== null ? (int)$r['last_call_ts'] : null;
+        $called   = ((int)$r['calls_since']) > 0;
+
+        $answers = (string)$r['pain_points'] . "\n" . (string)$r['opportunity'];
+        $volume  = $pick($answers, 'New inquiries a month: ');
+        $speed   = $pick($answers, 'Reply speed: ');
+        $spend   = $pick($answers, 'Current lead or ad spend: ');
+        $fix     = $pick($answers, 'Most wants fixed: ');
+
+        $best = '';
+        $pos  = strpos((string)$r['next_action'], 'best time ');
+        if ($pos !== false) $best = trim(substr($r['next_action'], $pos + strlen('best time ')));
+
+        $heat = 0;
+        if (!$called) $heat += 100;
+        if ($answered !== null) $heat += 40;
+        if ($spend === '$500 to $2,000 a month' || $spend === 'Over $2,000 a month') $heat += 20;
+        elseif ($spend === 'Under $500 a month') $heat += 10;
+        if ($volume === '30 to 100' || $volume === 'Over 100') $heat += 15;
+        elseif ($volume === '10 to 30') $heat += 5;
+        if ($speed === 'Same day' || $speed === 'Next day or later') $heat += 10;
+
+        $recent = max($started, $answered !== null ? $answered : 0);
+        $days   = (int)floor(max(0, $nowA - $recent) / 86400);
+        if ($days > 30) $days = 30;
+        $heat -= $days;
+
+        $auditAll[] = [
+            'id'           => (string)$r['id'],
+            'name'         => $r['name'],
+            'contact'      => $r['contact'],
+            'phone'        => $r['phone'],
+            'city'         => $r['city'],
+            'stage'        => $r['stage'],
+            'started_ts'   => $started,
+            'answered_ts'  => $answered,
+            'last_call_ts' => $lastCall,
+            'called'       => $called,
+            'volume'       => $volume,
+            'speed'        => $speed,
+            'spend'        => $spend,
+            'fix'          => $fix,
+            'best_time'    => $best,
+            'heat'         => $heat,
+        ];
+    }
+
+    usort($auditAll, function ($a, $b) {
+        if ($a['heat'] !== $b['heat']) return $b['heat'] - $a['heat'];
+        $ra = max($a['answered_ts'] !== null ? $a['answered_ts'] : 0, $a['started_ts']);
+        $rb = max($b['answered_ts'] !== null ? $b['answered_ts'] : 0, $b['started_ts']);
+        return $rb - $ra;
+    });
+
+    $auditLeads = array_slice($auditAll, 0, 12);
+
+    $aWeek = 0; $aAnswered = 0; $aWaiting = 0;
+    foreach ($auditAll as $a) {
+        if ($a['started_ts'] >= $week) $aWeek++;
+        if ($a['answered_ts'] !== null) $aAnswered++;
+        if (!$a['called']) $aWaiting++;
+    }
+    $auditSummary = ['total' => count($auditAll), 'week' => $aWeek,
+                     'answered' => $aAnswered, 'waiting' => $aWaiting];
+
     json_out([
         'total'      => $total,
         'worked'     => $worked,
@@ -788,6 +893,8 @@ case 'stats': {
              FROM events e JOIN leads l ON l.id = e.lead_id
              WHERE e.status='scheduled' AND e.kind='demo' AND e.starts_at >= " . strtotime('tomorrow') . "
              ORDER BY e.starts_at ASC LIMIT 12")->fetchAll(),
+        'audit_leads'   => $auditLeads,
+        'audit_summary' => $auditSummary,
         'daily'      => $daily,
         'by_hour'    => $hours,
         'target'     => 100,
