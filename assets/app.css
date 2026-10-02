@@ -811,3 +811,30 @@ body.gate{display:grid;place-items:center;overflow:auto}
   .arow{flex-direction:column}
   .aside{flex-direction:row;align-items:center;justify-content:flex-start}
 }
+
+/* ---- Sales rules: the three status pills on a call card or a record ---- */
+.flagrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:12px}
+.flagrow.btns{margin-top:8px}
+.chip.warn{background:var(--warn-wash);color:var(--warn)}
+.flagbtn{cursor:pointer;border:1px solid transparent}
+.flagbtn:hover{filter:brightness(.97)}
+.flagact{font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:20px;
+  border:1px solid var(--line);background:var(--surface);color:var(--soft)}
+.flagact:hover{border-color:var(--accent);color:var(--ink)}
+
+/* ---- Baseline and the permission line, on a won record ---- */
+.baseline{margin-top:20px}
+.baseline .hint{font-size:12px;color:var(--soft);margin:6px 0 10px;line-height:1.45}
+.baseline .chk{display:flex;align-items:center;gap:9px;font-size:13.5px;
+  font-weight:600;margin-bottom:10px}
+.baseline .chk input{width:16px;height:16px;accent-color:var(--accent)}
+
+/* ---- This week vs the plan ---- */
+.planlist{display:flex;flex-direction:column;padding:6px 16px 12px}
+.planrow{display:flex;align-items:baseline;gap:10px;padding:9px 0;
+  border-bottom:1px solid var(--line2);font-size:13.5px}
+.planrow:last-child{border-bottom:0}
+.planrow span{flex:1;color:var(--soft)}
+.planrow b{font-variant-numeric:tabular-nums;font-weight:700}
+.planrow em{font-style:normal;font-size:11.5px;color:var(--faint);margin-left:8px}
+.stopact{padding:0 16px 14px}

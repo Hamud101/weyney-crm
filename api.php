@@ -31,6 +31,68 @@ function touch_lead(PDO $pdo, string $id): void {
 }
 
 /**
+ * One scheduled thing, inserted and pushed to the calendar and Trello.
+ * Extracted from schedule() so audit_sent() and set_stage() create their
+ * reminders through exactly the same path, with the same sync bookkeeping.
+ */
+function create_event(PDO $pdo, array $lead, string $kind, int $ts, string $title, string $notes,
+                      int $mins = 15, string $inviteEmail = ''): array {
+    $id  = $lead['id'];
+    $now = time();
+    $uid = $kind . '-' . $id . '-' . $ts . '@weyney.com';
+
+    $pdo->prepare("INSERT OR REPLACE INTO events
+        (lead_id,kind,title,notes,starts_at,duration_min,status,created_at,updated_at,ics_uid,invite_email)
+        VALUES (?,?,?,?,?,?,'scheduled',?,?,?,?)")
+        ->execute([$id, $kind, $title, $notes, $ts, $mins, $now, $now, $uid,
+                   $inviteEmail !== '' ? $inviteEmail : null]);
+
+    // Learn the email if this is the first time we've been given one.
+    if ($inviteEmail !== '' && $inviteEmail !== ($lead['email'] ?? '')) {
+        $pdo->prepare("UPDATE leads SET email=? WHERE id=?")->execute([$inviteEmail, $id]);
+    }
+
+    $row = $pdo->prepare("SELECT e.*, l.name, l.phone, l.city FROM events e
+                          JOIN leads l ON l.id = e.lead_id WHERE e.ics_uid = ?");
+    $row->execute([$uid]);
+    $ev = $row->fetch();
+
+    $synced = false; $syncErr = null; $meet = null; $carded = false;
+    if ($ev) {
+        // Push straight to Google, inline so a booking is on the phone at once.
+        if (g_connected()) {
+            [$synced, $info, $meet] = array_pad(g_sync_event($ev, $ev), 3, null);
+            if (!$synced) $syncErr = $info;
+        }
+        // Trello inline too; cron stays as the retry net.
+        if (cfg('trello_key') && cfg('trello_token')) { [$carded] = t_sync_event($ev); }
+    }
+
+    return ['uid' => $uid, 'synced' => $synced, 'syncErr' => $syncErr,
+            'meet' => $meet, 'carded' => $carded];
+}
+
+/** A weekday or two out, at 10:00 local. Used for the audit follow ups. */
+function business_days_later(int $days): int {
+    $d = new DateTime('now', new DateTimeZone(cfg('timezone')));
+    $d->setTime(10, 0, 0);
+    $added = 0;
+    while ($added < $days) {
+        $d->modify('+1 day');
+        if ((int)$d->format('N') <= 5) $added++;
+    }
+    return $d->getTimestamp();
+}
+
+/** Some days out, at 10:00 local. Used for the events a win creates. */
+function days_later_at_ten(int $days): int {
+    $d = new DateTime('now', new DateTimeZone(cfg('timezone')));
+    $d->setTime(10, 0, 0);
+    $d->modify('+' . $days . ' days');
+    return $d->getTimestamp();
+}
+
+/**
  * Pull contact surfaces out of the imported research note.
  * The notes follow "<problem> — <opener> | <detail> | site: <domain>", so the
  * site is reliably at the end; 128 of 130 carry one. Facebook is mentioned in
@@ -268,11 +330,11 @@ case 'disposition': {
     log_act($pdo, $id, 'call', 'Outcome: ' . str_replace('_', ' ', $outcome) . ($note ? ' — ' . $note : ''));
     $pdo->commit();
 
-    json_out(['ok' => true, 'stage' => $stage]);
-}
+    $tc = $pdo->prepare("SELECT COUNT(*) FROM activities WHERE lead_id=?");
+    $tc->execute([$id]);
 
-/* Schedule a callback / booked call. This is the row the calendar and Trello
-   sync read — nothing else feeds them. */
+    json_out(['ok' => true, 'stage' => $stage, 'touches' => (int)$tc->fetchColumn()]);
+}
 case 'schedule': {
     $id    = (string)($in['id'] ?? '');
     $kind  = (string)($in['kind'] ?? 'callback');
@@ -291,18 +353,8 @@ case 'schedule': {
     $ts = $dt->getTimestamp();
 
     $title = ($kind === 'demo' ? 'Demo — ' : 'Call back — ') . $lead['name'];
-    $uid = $kind . '-' . $id . '-' . $ts . '@weyney.com';
-
-    $pdo->prepare("INSERT OR REPLACE INTO events
-        (lead_id,kind,title,notes,starts_at,duration_min,status,created_at,updated_at,ics_uid,invite_email)
-        VALUES (?,?,?,?,?,?,'scheduled',?,?,?,?)")
-        ->execute([$id, $kind, $title, $notes, $ts, $mins, $now, $now, $uid,
-                   $inviteEmail !== '' ? $inviteEmail : null]);
-
-    // Learn the email if this is the first time we've been given one.
-    if ($inviteEmail !== '' && $inviteEmail !== $lead['email']) {
-        $pdo->prepare("UPDATE leads SET email=? WHERE id=?")->execute([$inviteEmail, $id]);
-    }
+    $res = create_event($pdo, $lead, $kind, $ts, $title, $notes, $mins, $inviteEmail);
+    $uid = $res['uid'];
 
     /* Scheduling implies contact was made, so it moves the lead on. A demo is
        further along than a follow-up; don't let a follow-up drag a booked lead
@@ -315,34 +367,110 @@ case 'schedule': {
     log_act($pdo, $id, 'schedule', ucfirst($kind) . ' set for ' . $dt->format('D j M, g:ia') . ($notes ? ' — ' . $notes : ''));
     touch_lead($pdo, $id);
 
-    /* Push straight to Google. Done inline rather than by cron so a callback
-       you just booked is on the phone before you hang up. A failure here must
-       not lose the CRM record, so it only affects the response flag. */
-    $synced = false; $syncErr = null;
-    if (g_connected()) {
-        $row = $pdo->prepare("SELECT e.*, l.name, l.phone, l.city FROM events e
-                              JOIN leads l ON l.id = e.lead_id WHERE e.ics_uid = ?");
-        $row->execute([$uid]);
-        if ($ev = $row->fetch()) {
-            [$synced, $info, $meet] = array_pad(g_sync_event($ev, $ev), 3, null);
-            if (!$synced) $syncErr = $info;
+    json_out(['ok' => true, 'starts_at' => $ts, 'uid' => $uid,
+              'calendar_synced' => $res['synced'], 'calendar_error' => $res['syncErr'],
+              'trello_carded' => $res['carded'], 'invited' => $inviteEmail !== '',
+              'meet_link' => $res['meet'] ?? null]);
+}
+
+/* Set the flags the sales rules hang off. Only the keys sent are touched, and
+   every real change logs one line so the history shows when it changed. */
+case 'set_flags': {
+    $id   = (string)($in['id'] ?? '');
+    $lead = lead_row($pdo, $id);
+    if (!$lead) json_out(['error' => 'not found'], 404);
+
+    $sets = []; $vals = []; $changed = 0;
+    if (array_key_exists('may_text', $in)) {
+        $v = !empty($in['may_text']) ? 1 : 0;
+        if ($v !== (int)$lead['may_text']) {
+            $sets[] = 'may_text=?'; $vals[] = $v; $changed++;
+            log_act($pdo, $id, 'detail',
+                $v ? 'Texting allowed: they replied first' : 'Texting off');
         }
     }
-    /* Trello inline too. Cron on this host needs hPanel setup, so relying on it
-       would mean cards appearing minutes late or not at all. Cron stays as the
-       retry net for anything that fails here. */
-    $carded = false;
-    if (cfg('trello_key') && cfg('trello_token')) {
-        $row = $pdo->prepare("SELECT e.*, l.name, l.phone, l.city FROM events e
-                              JOIN leads l ON l.id = e.lead_id WHERE e.ics_uid = ?");
-        $row->execute([$uid]);
-        if ($ev2 = $row->fetch()) { [$carded] = t_sync_event($ev2); }
+    if (array_key_exists('proof_ok', $in)) {
+        $v = !empty($in['proof_ok']) ? 1 : 0;
+        if ($v !== (int)$lead['proof_ok']) {
+            $sets[] = 'proof_ok=?'; $vals[] = $v; $changed++;
+            log_act($pdo, $id, 'detail',
+                $v ? 'Permission to describe the work: yes' : 'Permission to describe the work: no');
+        }
     }
+    if (array_key_exists('baseline', $in)) {
+        $v = trim((string)$in['baseline']);
+        if ($v !== (string)$lead['baseline']) {
+            $sets[] = 'baseline=?'; $vals[] = $v; $changed++;
+            log_act($pdo, $id, 'detail', 'Baseline recorded');
+        }
+    }
+    if ($sets) {
+        $sets[] = 'updated_at=?'; $vals[] = $now; $vals[] = $id;
+        $pdo->prepare("UPDATE leads SET " . implode(',', $sets) . " WHERE id=?")->execute($vals);
+        touch_lead($pdo, $id);
+    }
+    json_out(['ok' => true, 'changed' => $changed]);
+}
 
-    json_out(['ok' => true, 'starts_at' => $ts, 'uid' => $uid,
-              'calendar_synced' => $synced, 'calendar_error' => $syncErr,
-              'trello_carded' => $carded, 'invited' => $inviteEmail !== '',
-              'meet_link' => $meet ?? null]);
+/* The reply speed test: we submit the contact form under our own name, then
+   record when a human answers it. The gap is the number the plan cares about. */
+case 'form_test': {
+    $id   = (string)($in['id'] ?? '');
+    $step = (string)($in['step'] ?? '');
+    $lead = lead_row($pdo, $id);
+    if (!$lead) json_out(['error' => 'not found'], 404);
+
+    if ($step === 'sent') {
+        $pdo->prepare("UPDATE leads SET form_test_at=?, updated_at=? WHERE id=?")
+            ->execute([$now, $now, $id]);
+        log_act($pdo, $id, 'detail', 'Form test sent under our name');
+        touch_lead($pdo, $id);
+        json_out(['ok' => true, 'form_test_at' => $now]);
+    }
+    if ($step === 'replied') {
+        if ((int)$lead['form_test_at'] === 0) {
+            json_out(['error' => 'send the form test first'], 400);
+        }
+        $pdo->prepare("UPDATE leads SET form_reply_at=?, updated_at=? WHERE id=?")
+            ->execute([$now, $now, $id]);
+        $mins = (int)floor(max(0, $now - (int)$lead['form_test_at']) / 60);
+        $h = intdiv($mins, 60); $m = $mins % 60;
+        log_act($pdo, $id, 'detail',
+            'Form test answered after ' . $h . ' hours ' . $m . ' minutes');
+        touch_lead($pdo, $id);
+        json_out(['ok' => true, 'form_reply_at' => $now, 'hours' => $h, 'minutes' => $m]);
+    }
+    json_out(['error' => 'unknown step'], 400);
+}
+
+/* The one page audit went out. That starts two reminders: two business days
+   later to ask if it landed, and a week later to send one new fact. Both are
+   notes for Hamud, never an automated message. */
+case 'audit_sent': {
+    $id   = (string)($in['id'] ?? '');
+    $lead = lead_row($pdo, $id);
+    if (!$lead) json_out(['error' => 'not found'], 404);
+
+    $pdo->prepare("UPDATE leads SET audit_sent_at=?, updated_at=? WHERE id=?")
+        ->execute([$now, $now, $id]);
+    log_act($pdo, $id, 'note', 'One page audit sent');
+
+    create_event($pdo, $lead, 'followup', business_days_later(2),
+        'Call: did the audit land? - ' . $lead['name'],
+        'Two days after the audit. Ask what they thought of the two facts.');
+    create_event($pdo, $lead, 'followup', days_later_at_ten(7),
+        'One new fact - ' . $lead['name'],
+        'Text one new fact from their listing ONLY if texting is allowed (they replied). Otherwise email it.');
+
+    // Sending the audit is contact, so it moves the lead forward like a schedule does.
+    if (in_array($lead['stage'], ['new','attempting','voicemail'], true)) {
+        $pdo->prepare("UPDATE leads SET stage='contacted', updated_at=? WHERE id=?")
+            ->execute([$now, $id]);
+    }
+    touch_lead($pdo, $id);
+    json_out(['ok' => true, 'audit_sent_at' => $now,
+              'stage' => in_array($lead['stage'], ['new','attempting','voicemail'], true)
+                         ? 'contacted' : $lead['stage']]);
 }
 
 /* A note can also carry who you spoke to. Capturing the contact at the moment
@@ -858,6 +986,47 @@ case 'stats': {
     $auditSummary = ['total' => count($auditAll), 'week' => $aWeek,
                      'answered' => $aAnswered, 'waiting' => $aWaiting];
 
+    /* The plan's weekly hypothesis, measured against what actually happened over
+       the last 7 days. Dials come straight from the call log. Held demos use the
+       stage-change activity, which is the only timestamped record of a move into
+       Demo held, so count those in the window. Closes count leads whose won_at
+       landed in the window. */
+    $swk = $pdo->prepare("SELECT COUNT(*) FROM activities WHERE type='call' AND ts>=?");
+    $swk->execute([$week]); $dialsWeek = (int)$swk->fetchColumn();
+
+    $shd = $pdo->prepare("SELECT COUNT(*) FROM activities WHERE type='stage' AND body LIKE ? AND ts>=?");
+    $shd->execute(['%→ Demo held%', $week]); $heldWeek = (int)$shd->fetchColumn();
+
+    $scl = $pdo->prepare("SELECT COUNT(*) FROM leads WHERE won_at > 0 AND won_at >= ?");
+    $scl->execute([$week]); $closesWeek = (int)$scl->fetchColumn();
+
+    $planDph = 70;   // plan: 70 dials per held demo
+    $planHpc = 4;    // plan: 4 held demos per close
+    $weekBlock = [
+        'dials'               => $dialsWeek,
+        'held'                => $heldWeek,
+        'closes'              => $closesWeek,
+        'plan_dials_per_held' => $planDph,
+        'plan_held_per_close' => $planHpc,
+        'dials_per_held'      => $heldWeek > 0 ? $dialsWeek / $heldWeek : null,
+        'held_per_close'      => $closesWeek > 0 ? $heldWeek / $closesWeek : null,
+    ];
+
+    /* Stop loss: six touches, three weeks, no reply. A lead only qualifies if
+       its first call is at least 21 days old, so a fresh six-touch lead is not
+       swept off the list too early. */
+    $slq = $pdo->prepare("
+        SELECT l.id, l.name, l.attempts,
+               (SELECT MIN(a.ts) FROM activities a
+                 WHERE a.lead_id=l.id AND a.type='call') AS first_call
+        FROM leads l
+        WHERE l.stage IN ('attempting','voicemail') AND l.attempts >= 6
+          AND (SELECT MIN(a.ts) FROM activities a
+                WHERE a.lead_id=l.id AND a.type='call') <= ?
+        ORDER BY first_call ASC");
+    $slq->execute([$now - 21 * 86400]);
+    $stopLoss = $slq->fetchAll();
+
     json_out([
         'total'      => $total,
         'worked'     => $worked,
@@ -897,6 +1066,8 @@ case 'stats': {
         'audit_summary' => $auditSummary,
         'daily'      => $daily,
         'by_hour'    => $hours,
+        'week'       => $weekBlock,
+        'stop_loss'  => $stopLoss,
         'target'     => 100,
     ]);
 }
@@ -1028,10 +1199,52 @@ case 'set_stage': {
     if (!isset(STAGES[$stage])) json_out(['error' => 'unknown stage'], 400);
     if ($stage === $lead['stage']) json_out(['ok' => true, 'stage' => $stage]);
 
-    $pdo->prepare("UPDATE leads SET stage=?, updated_at=? WHERE id=?")->execute([$stage, $now, $id]);
+    // Winning is a date as well as a stage, and it starts the client reminders.
+    $wonNow = ($stage === 'won' && (int)$lead['won_at'] === 0);
+    if ($wonNow) {
+        $pdo->prepare("UPDATE leads SET stage=?, won_at=?, updated_at=? WHERE id=?")
+            ->execute([$stage, $now, $now, $id]);
+    } else {
+        $pdo->prepare("UPDATE leads SET stage=?, updated_at=? WHERE id=?")
+            ->execute([$stage, $now, $id]);
+    }
     log_act($pdo, $id, 'stage',
         'Moved ' . STAGES[$lead['stage']]['label'] . ' → ' . STAGES[$stage]['label']);
+
+    if ($wonNow) {
+        $lead['won_at'] = $now;
+        create_event($pdo, $lead, 'followup', days_later_at_ten(7),
+            'Record the baseline - ' . $lead['name'],
+            'Before folder: dated screenshots of the map block, profile, review count, form timestamp, site on a phone. Fill the Baseline field.');
+        create_event($pdo, $lead, 'followup', days_later_at_ten(35),
+            'First report: ask for a Weyney review if the numbers moved - ' . $lead['name'],
+            'If review count or reply time moved, ask once for a Google review of Weyney Media and one introduction. Direct link.');
+        create_event($pdo, $lead, 'followup', days_later_at_ten(80),
+            'Day 80 review - ' . $lead['name'],
+            'Three reports side by side with the baseline. One question: what should month four focus on.');
+        touch_lead($pdo, $id);
+    }
     json_out(['ok' => true, 'stage' => $stage]);
+}
+
+/* The plan's stop loss: six touches over three weeks with no reply moves a row
+   to the January list. Only leads still in the cold stages are moved. */
+case 'move_to_nurture': {
+    $ids = (array)($in['ids'] ?? []);
+    $moved = 0;
+    foreach ($ids as $rawId) {
+        $id = (string)$rawId;
+        $lead = lead_row($pdo, $id);
+        if (!$lead) continue;
+        if (!in_array($lead['stage'], ['attempting', 'voicemail'], true)) continue;
+        $pdo->prepare("UPDATE leads SET stage='nurture', next_action=?, updated_at=? WHERE id=?")
+            ->execute(['January list: call again in January', $now, $id]);
+        log_act($pdo, $id, 'stage',
+            'Stop loss: 6 touches, 3 weeks, no reply. Moved to the January list.');
+        touch_lead($pdo, $id);
+        $moved++;
+    }
+    json_out(['ok' => true, 'moved' => $moved]);
 }
 
 case 'search': {

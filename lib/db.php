@@ -249,4 +249,21 @@ function migrate(PDO $pdo): void {
         $pdo->exec("INSERT OR REPLACE INTO schema_meta (k,v) VALUES ('version','10')");
         $cur = 10;
     }
+
+    if ($cur < 11) {
+        /* The plan's sales rules, made impossible to forget. may_text records
+           that the lead contacted us first (no cold texts); the two form_test
+           stamps time our reply speed test; audit_sent_at marks the one page
+           audit; won_at marks the day a lead became a client; baseline is the
+           week 1 "before" numbers; proof_ok is the permission line. */
+        $pdo->exec("ALTER TABLE leads ADD COLUMN may_text     INTEGER NOT NULL DEFAULT 0");
+        $pdo->exec("ALTER TABLE leads ADD COLUMN form_test_at INTEGER NOT NULL DEFAULT 0");
+        $pdo->exec("ALTER TABLE leads ADD COLUMN form_reply_at INTEGER NOT NULL DEFAULT 0");
+        $pdo->exec("ALTER TABLE leads ADD COLUMN audit_sent_at INTEGER NOT NULL DEFAULT 0");
+        $pdo->exec("ALTER TABLE leads ADD COLUMN won_at       INTEGER NOT NULL DEFAULT 0");
+        $pdo->exec("ALTER TABLE leads ADD COLUMN baseline     TEXT    NOT NULL DEFAULT ''");
+        $pdo->exec("ALTER TABLE leads ADD COLUMN proof_ok     INTEGER NOT NULL DEFAULT 0");
+        $pdo->exec("INSERT OR REPLACE INTO schema_meta (k,v) VALUES ('version','11')");
+        $cur = 11;
+    }
 }

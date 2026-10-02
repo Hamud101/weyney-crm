@@ -107,6 +107,121 @@
     setTimeout(function () { t.classList.remove('on'); setTimeout(function(){ t.remove(); }, 300); }, 2200);
   }
 
+  /* Relative time in plain words. The status pills read "2 days ago". */
+  function ago(ts) {
+    var s = Math.floor(Date.now() / 1000) - ts;
+    if (s < 3600)  return Math.max(1, Math.floor(s / 60)) + ' minutes ago';
+    if (s < 86400) return Math.floor(s / 3600) + ' hours ago';
+    return Math.floor(s / 86400) + ' days ago';
+  }
+  /* A reply-answer gap as "3h 10m". */
+  function hhmm(secs) {
+    var m = Math.max(0, Math.round(secs / 60));
+    return Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+  }
+  /* "Tue 3 Oct" — the audit's send stamp. */
+  function dateMid(ts) {
+    var d = new Date(ts * 1000);
+    return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + d.getDate() + ' ' +
+           d.toLocaleDateString([], { month: 'short' });
+  }
+
+  /* The three rules that decide what we may do next, shown where the work is:
+     texting, the reply speed test, and the one page audit. */
+  function flagRow(l) {
+    var mt  = +l.may_text === 1;
+    var fta = +l.form_test_at || 0, fra = +l.form_reply_at || 0;
+    var aud = +l.audit_sent_at || 0;
+
+    var pills = '<div class="flagrow">' +
+      '<button class="chip flagbtn ' + (mt ? 'ok' : 'warn') + '" data-maytext="' + esc(l.id) + '" ' +
+        'data-on="' + (mt ? '1' : '0') + '" ' +
+        'title="Only allow texting if they texted or emailed you first">' +
+        (mt ? 'Texting allowed' : 'No texting: cold') + '</button>';
+
+    if (!fta) {
+      pills += '<span class="chip muted">Form test: not sent</span>';
+    } else if (!fra) {
+      pills += '<span class="chip warn">Form test sent ' + ago(fta) + ', no reply</span>';
+    } else {
+      pills += '<span class="chip ok">Form answered in ' + hhmm(fra - fta) + '</span>';
+    }
+
+    pills += (aud
+      ? '<span class="chip">Audit sent ' + dateMid(aud) + '</span>'
+      : '<span class="chip muted">Audit not sent</span>') + '</div>';
+
+    var acts = '<div class="flagrow btns">' +
+      '<button class="flagact" data-formstep="sent" data-flid="' + esc(l.id) + '">I sent the form test</button>' +
+      '<button class="flagact" data-formstep="replied" data-flid="' + esc(l.id) + '">They replied</button>' +
+      (aud ? '' : '<button class="flagact" data-auditsent="' + esc(l.id) + '">Audit sent</button>') +
+      '</div>';
+
+    return pills + acts;
+  }
+
+  /* Won clients only: the "before" numbers and the permission line. */
+  function baselinePanel(l) {
+    if (l.stage !== 'won') return '';
+    return '<div class="baseline">' +
+      '<div class="sect">Baseline</div>' +
+      '<textarea id="bl-text" rows="3" class="nbfield" ' +
+        'placeholder="Week 1: map position, review count, monthly calls, reply time, with the date">' +
+        esc(l.baseline || '') + '</textarea>' +
+      '<div class="hint">Week 1: map position, review count, monthly calls, reply time, with the date</div>' +
+      '<label class="chk"><input type="checkbox" id="bl-proof"' +
+        (+l.proof_ok === 1 ? ' checked' : '') + '> Agreement includes the permission line</label>' +
+      '<button class="btn" data-blsave="1">Save baseline</button>' +
+      '</div>';
+  }
+
+  function ratio(x) {
+    return (x === null || x === undefined) ? 'no data yet' : (Math.round(x * 10) / 10);
+  }
+  /* This week measured against the plan's ratio hypothesis. Plain text, no chart. */
+  function weekPanel(d) {
+    var w = d.week || {};
+    function row(label, val, plan) {
+      return '<div class="planrow"><span>' + label + '</span><b>' + val + '</b>' +
+             (plan !== undefined ? '<em>plan ' + plan + '</em>' : '') + '</div>';
+    }
+    return '<div class="panel" style="margin-bottom:14px">' +
+      '<div class="phead">This week vs the plan</div><div class="planlist">' +
+      row('Dials', (w.dials || 0)) +
+      row('Demos held', (w.held || 0)) +
+      row('Closes', (w.closes || 0)) +
+      row('Dials per held demo', ratio(w.dials_per_held), w.plan_dials_per_held) +
+      row('Held demos per close', ratio(w.held_per_close), w.plan_held_per_close) +
+      '</div></div>';
+  }
+  /* The stop loss list, shown only when there is something to sweep. */
+  function stopLossPanel(d) {
+    var s = d.stop_loss || [];
+    if (!s.length) return '';
+    return '<div class="panel" style="margin-bottom:14px">' +
+      '<div class="phead">Stop loss: 6 touches, 3 weeks, no reply</div>' +
+      '<div class="list flush">' + s.map(function (x) {
+        return '<div class="srow"><span class="sn">' + esc(x.name) + '</span>' +
+          '<span class="tag">' + x.attempts + ' touches</span>' +
+          '<span class="sw">' +
+            (x.first_call ? 'first call ' + dateMid(x.first_call) : '') + '</span></div>';
+      }).join('') + '</div>' +
+      '<div class="stopact"><button class="btn btn-p" data-movenurture="1">' +
+        'Move all to the January list</button></div>' +
+      '</div>';
+  }
+
+  /* Refresh one lead in place, from either the record or the call queue. */
+  function reloadLead(id) {
+    return api('lead', null, { id: id }).then(function (l) {
+      if (S.view === 'detail') { S.detail = l; render(); return; }
+      for (var i = 0; i < S.queue.length; i++) {
+        if (S.queue[i].id === id) { S.queue[i] = l; break; }
+      }
+      render();
+    });
+  }
+
   var LINKICON = {
     web:'<svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.9 6h-2.9a15 15 0 0 0-1.3-3.4A8 8 0 0 1 18.9 8zM12 4c.8 1.1 1.4 2.5 1.8 4h-3.6c.4-1.5 1-2.9 1.8-4zM4.3 14a8 8 0 0 1 0-4h3.3a17 17 0 0 0 0 4zm.8 2h2.9c.3 1.2.7 2.4 1.3 3.4A8 8 0 0 1 5.1 16zm2.9-8H5.1a8 8 0 0 1 4.2-3.4A15 15 0 0 0 8 8zM12 20c-.8-1.1-1.4-2.5-1.8-4h3.6c-.4 1.5-1 2.9-1.8 4zm2.2-6H9.8a15 15 0 0 1 0-4h4.4a15 15 0 0 1 0 4zm.5 5.4c.6-1 1-2.2 1.3-3.4h2.9a8 8 0 0 1-4.2 3.4zM16.4 14a17 17 0 0 0 0-4h3.3a8 8 0 0 1 0 4z"/></svg>',
     facebook:'<svg viewBox="0 0 24 24"><path d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.5h-1.3c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.4v7A10 10 0 0 0 22 12z"/></svg>',
@@ -262,6 +377,7 @@
           esc(l.city || '—') +
           (l.contact ? ' · <b>' + esc(l.contact) + '</b>' : '') +
           (l.attempts > 0 ? ' · ' + l.attempts + ' attempt' + (l.attempts > 1 ? 's' : '') : '') + '</div>' +
+        flagRow(l) +
         (l.phone
           ? '<div class="phone"><a href="' + dialHref(l.phone) + '" target="_blank" rel="noopener" ' +
             'title="Dial with Google Voice">' + esc(prettyPhone(l.phone)) + '</a>' +
@@ -577,7 +693,7 @@
         strip + body + '</div>';
     })();
 
-    return cards + auditsHtml + nudge + daily + '<div style="margin-top:14px">' + sched + '</div>' +
+    return cards + weekPanel(d) + stopLossPanel(d) + auditsHtml + nudge + daily + '<div style="margin-top:14px">' + sched + '</div>' +
       (demopanel ? '<div style="margin-top:14px">' + demopanel + '</div>' : '') +
       '<div class="split" style="margin-top:14px">' + funnel + outcomes + '</div>' +
       '<div class="split" style="margin-top:14px">' + besttime + stale + '</div>';
@@ -642,6 +758,7 @@
         '<div class="qwho" style="margin-top:9px">' + esc(l.name) + '</div>' +
         '<div class="qmeta">' + esc(l.city || '—') +
           (l.contact ? ' · <b>' + esc(l.contact) + '</b>' : '') + '</div>' +
+        flagRow(l) +
         (l.phone
           ? '<div class="phone"><a href="' + dialHref(l.phone) + '" target="_blank" rel="noopener" ' +
             'title="Dial with Google Voice">' + esc(prettyPhone(l.phone)) + '</a>' +
@@ -655,6 +772,7 @@
             'title="Set the packages they agreed to">Proposal</button>' +
         '</div>' +
         proposalPanel(l) +
+        baselinePanel(l) +
         '<div class="sect" style="margin-top:20px">Pipeline stage</div>' +
         '<select id="d-stage" class="nbfield stagesel">' + stageOptions(l.stage) + '</select>' +
         '<div class="sect" style="margin-top:20px">Schedule</div>' +
@@ -1847,6 +1965,61 @@
         el.parentNode.classList.toggle('open', S.showLog);   // no re-render
       };
     });
+    /* ---- the three sales rules: texting, the form test, the audit ---- */
+    app.querySelectorAll('[data-maytext]').forEach(function (el) {
+      el.onclick = function () {
+        var on = el.dataset.on === '1';
+        if (!on && !window.confirm('Only allow texting if they texted or emailed you first, ' +
+            'or gave you this number in a conversation.')) return;
+        api('set_flags', { id: el.dataset.maytext, may_text: on ? 0 : 1 }).then(function (r) {
+          if (r.error) return toast(r.error);
+          toast(on ? 'Texting off' : 'Texting allowed');
+          return reloadLead(el.dataset.maytext);
+        });
+      };
+    });
+    app.querySelectorAll('[data-formstep]').forEach(function (el) {
+      el.onclick = function () {
+        api('form_test', { id: el.dataset.flid, step: el.dataset.formstep }).then(function (r) {
+          if (r.error) return toast(r.error);
+          toast(el.dataset.formstep === 'sent' ? 'Form test recorded' : 'Reply recorded');
+          return reloadLead(el.dataset.flid);
+        });
+      };
+    });
+    app.querySelectorAll('[data-auditsent]').forEach(function (el) {
+      el.onclick = function () {
+        api('audit_sent', { id: el.dataset.auditsent }).then(function (r) {
+          if (r.error) return toast(r.error);
+          toast('Audit sent, two follow ups scheduled');
+          return reloadLead(el.dataset.auditsent);
+        });
+      };
+    });
+    var blsave = document.querySelector('[data-blsave]');
+    if (blsave) blsave.onclick = function () {
+      var id = S.detail.id;
+      api('set_flags', { id: id,
+                         baseline: document.getElementById('bl-text').value,
+                         proof_ok: document.getElementById('bl-proof').checked ? 1 : 0 })
+        .then(function (r) {
+          if (r.error) return toast(r.error);
+          toast('Saved');
+          return api('lead', null, { id: id }).then(function (l) { S.detail = l; render(); });
+        });
+    };
+    var mv = document.querySelector('[data-movenurture]');
+    if (mv) mv.onclick = function () {
+      var ids = (S.stats.stop_loss || []).map(function (x) { return x.id; });
+      if (!ids.length) return;
+      api('move_to_nurture', { ids: ids }).then(function (r) {
+        if (r.error) return toast(r.error);
+        toast(r.moved + ' moved to the January list');
+        return boot().then(function () {
+          return api('stats').then(function (x) { S.stats = x; render(); });
+        });
+      });
+    };
     app.querySelectorAll('[data-useemail]').forEach(function (el) {
       el.onclick = function () {
         var l = S.view === 'detail' ? S.detail : S.queue[S.i];
