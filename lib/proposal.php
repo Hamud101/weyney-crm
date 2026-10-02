@@ -19,7 +19,39 @@ require_once __DIR__ . '/documents.php';
  *  hand: there is no package manager on this host. */
 function chrome_bin(): string { return crm_home() . '/opt/chrome/bin/chrome-headless-shell'; }
 function chrome_lib(): string { return crm_home() . '/opt/chrome/lib'; }
-function proposal_template(): string { return __DIR__ . '/../templates/services-agreement.html'; }
+/** The retainer agreement is used whenever one of the three plans is ticked.
+ *  Website only and the clinic extras without a plan keep the services agreement. */
+function prop_is_retainer(array $p): bool {
+    foreach ($p['lines'] ?? [] as $l) {
+        if (in_array($l['id'] ?? '', ['foundation','owned_demand','growth_partner'], true)) return true;
+    }
+    return false;
+}
+
+/** Foundation runs month to month; the other two plans have a 90 day minimum. */
+function prop_retainer_term(array $p): string {
+    foreach ($p['lines'] ?? [] as $l) {
+        if (($l['id'] ?? '') === 'foundation') return 'month to month';
+    }
+    return 'a 90 day minimum, then month to month';
+}
+
+/** The six month prepay is call only and needs the whole package to be one of
+ *  the two plans it belongs to. Returns 'od', 'gp' or null. */
+function prop_prepay_plan(array $p): ?string {
+    if (empty($p['prepaid'])) return null;
+    $ids = [];
+    foreach ($p['lines'] ?? [] as $l) $ids[] = (string)($l['id'] ?? '');
+    sort($ids);
+    if ($ids === ['od_setup','owned_demand']) return 'od';
+    if ($ids === ['gp_setup','growth_partner']) return 'gp';
+    return null;
+}
+
+function proposal_template(array $p): string {
+    $file = prop_is_retainer($p) ? 'retainer-agreement.html' : 'services-agreement.html';
+    return __DIR__ . '/../templates/' . $file;
+}
 function sign_fields_script(): string { return __DIR__ . '/../templates/sign_fields.py'; }
 
 function prop_money($n): string { return '$' . number_format((int)$n); }
@@ -37,7 +69,8 @@ function prop_date(string $iso): string {
 function prop_fields(array $lead, array $p): array {
     $lines = $p['lines'] ?? [];
     $term  = max(1, (int)($p['term_months'] ?? 12));
-    $prepaid = !empty($p['prepaid']);
+    $retainer = prop_is_retainer($p);
+    $prepay = prop_prepay_plan($p);
 
     // Section 1: one bullet per service, in catalogue order as saved.
     $bullets = '';
@@ -47,40 +80,68 @@ function prop_fields(array $lead, array $p): array {
     }
     if ($bullets === '') $bullets = "    <li>As agreed in writing between the parties.</li>\n";
 
-    // Section 3: a fee line per service, then the total actually due on signing.
+    /* Section 3: a fee line per service, then the total due before kickoff. A
+       retainer lists the setup before kickoff and the monthly after, while the
+       services agreement keeps its one off wording. */
     $fees = '';
     $total = 0;
-    foreach ($lines as $l) {
-        $amt  = (int)($l['amount'] ?? 0);
-        $mon  = ($l['kind'] ?? 'once') === 'monthly';
-        $due  = $mon ? ($prepaid ? $amt * $term : $amt) : $amt;
-        $total += $due;
+    if ($retainer && $prepay !== null) {
+        $planName = $prepay === 'od' ? 'Owned Demand' : 'Growth Partner';
+        $amount = $prepay === 'od' ? 7500 : 12000;
+        $total = $amount;
+        $fees .= '  <p><span class="fee">' . prop_money($amount) . '</span>' .
+                 '<span class="feelabel">for six months of ' . $planName .
+                 ', setup waived, due before kickoff</span></p>' . "\n";
+    } else {
+        foreach ($lines as $l) {
+            $amt   = (int)($l['amount'] ?? 0);
+            $mon   = ($l['kind'] ?? 'once') === 'monthly';
+            $label = htmlspecialchars((string)$l['label'], ENT_QUOTES, 'UTF-8');
 
-        $label = htmlspecialchars((string)$l['label'], ENT_QUOTES, 'UTF-8');
-        if ($mon) {
-            $desc = $prepaid
-                ? $label . ' for ' . $term . ' months, prepaid'
-                : $label . ' — ' . prop_money($amt) . ' per month, first month due on signing';
-        } else {
-            $desc = $label . ', due on signing';
+            if ($retainer) {
+                if ($mon) {
+                    $fees .= '  <p><span class="fee">' . prop_money($amt) . '</span>' .
+                             '<span class="feelabel">' . $label .
+                             ' per month, first payment 30 days after kickoff, then on autopay</span></p>' . "\n";
+                } else {
+                    $total += $amt;
+                    $fees .= '  <p><span class="fee">' . prop_money($amt) . '</span>' .
+                             '<span class="feelabel">' . $label .
+                             ', due before kickoff</span></p>' . "\n";
+                }
+            } else {
+                $total += $amt;
+                $desc = $mon
+                    ? $label . ', ' . prop_money($amt) . ' per month, first month due on signing'
+                    : $label . ', due on signing';
+                $fees .= '  <p><span class="fee">' . prop_money($amt) . '</span>' .
+                         '<span class="feelabel">' . $desc . "</span></p>\n";
+            }
         }
-        $fees .= '  <p><span class="fee">' . prop_money($due) . '</span>' .
-                 '<span class="feelabel">' . $desc . "</span></p>\n";
     }
+    $totalLine = $retainer ? 'total due before kickoff' : 'total due on signing';
     $fees .= '  <p class="total"><span class="fee">' . prop_money($total) . '</span>' .
-             '<span class="feelabel">total due on signing</span></p>' . "\n";
+             '<span class="feelabel">' . $totalLine . '</span></p>' . "\n";
 
     if (!empty($p['notes'])) {
         $fees .= '  <p>' . nl2br(htmlspecialchars((string)$p['notes'], ENT_QUOTES, 'UTF-8')) . "</p>\n";
     }
 
-    /* The package name. One service is named plainly; several become the
-       generic label the agreement already used, because inventing a product
-       name for an arbitrary combination would put a phrase in a contract that
-       exists nowhere else. */
-    $names = array_map(function ($l) { return (string)$l['label']; }, $lines);
-    $package = count($names) === 1 ? $names[0]
-             : (count($names) ? 'Custom Services' : 'Services');
+    /* The package name. A retainer is named after its plan. One service is
+       named plainly; several become the generic label the agreement already
+       used, because inventing a product name for an arbitrary combination
+       would put a phrase in a contract that exists nowhere else. */
+    $planName = '';
+    foreach ($lines as $l) {
+        $id = (string)($l['id'] ?? '');
+        if ($id === 'foundation')     $planName = 'Foundation';
+        if ($id === 'owned_demand')   $planName = 'Owned Demand';
+        if ($id === 'growth_partner') $planName = 'Growth Partner';
+    }
+    $names = array_map(function ($l) { return (string)($l['label'] ?? ''); }, $lines);
+    $package = $planName !== '' ? $planName
+             : (count($names) === 1 ? $names[0]
+             : (count($names) ? 'Custom Services' : 'Services'));
 
     return [
         '{{AGREEMENT_DATE}}' => prop_date((string)($p['date'] ?? '')),
@@ -88,7 +149,8 @@ function prop_fields(array $lead, array $p): array {
         '{{PACKAGE_NAME}}'   => htmlspecialchars($package, ENT_QUOTES, 'UTF-8'),
         '{{SERVICE_BULLETS}}'=> $bullets,
         '{{FEE_LINES}}'      => $fees,
-        '{{TERM}}'           => $term . ' month' . ($term === 1 ? '' : 's'),
+        '{{TERM}}'           => $retainer ? prop_retainer_term($p)
+                                          : ($term . ' month' . ($term === 1 ? '' : 's')),
         '{{CHANGE_FEE}}'     => prop_money((int)($p['change_fee'] ?? 50)) . ' per request',
         '{{TOTAL}}'          => prop_money($total),
         '{{SIGN_DATE}}'      => prop_date((string)($p['date'] ?? '')),
@@ -99,7 +161,7 @@ function prop_fields(array $lead, array $p): array {
  * Render and stamp. Returns [documentRow, null] or [null, 'why not'].
  */
 function prop_generate(PDO $pdo, array $lead, array $p): array {
-    $tpl = proposal_template();
+    $tpl = proposal_template($p);
     if (!is_file($tpl))          return [null, 'the agreement template is missing on the server'];
     if (!is_file(chrome_bin()))  return [null, 'the renderer is not installed (~/opt/chrome)'];
 

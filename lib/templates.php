@@ -30,13 +30,12 @@ function email_templates(): array {
     return [
         'core-services' => [
             'name'    => 'Core services',
-            'blurb'   => 'Introduces the three services, pricing and how a project runs.',
+            'blurb'   => 'Introduces the three plans, what they cost and how a project runs.',
             'subject' => 'What I do — a quick overview',
             'body'    =>
                 "Hi {{first_name}},\n\n" .
-                "I've attached a short overview of what I do — custom websites, ranking " .
-                "optimization and marketing automation — along with what each costs and " .
-                "how a project usually runs.\n\n" .
+                "I've attached a short overview of what I do, the three plans, along " .
+                "with what each one costs and how a project usually runs.\n\n" .
                 "It's a two-page read. If any of it looks useful for {{company}}, tell me " .
                 "a time that suits you and I'll give you a call.\n\n" .
                 "Thanks,\nHamud",
@@ -47,12 +46,12 @@ function email_templates(): array {
         ],
         'website-benefits' => [
             'name'    => 'Why a website matters',
-            'blurb'   => 'The case for having a proper site, and where my services fit.',
+            'blurb'   => 'The case for having a proper site, and where the plans fit.',
             'subject' => 'The customers {{company}} never hears from',
             'body'    =>
                 "Hi {{first_name}},\n\n" .
                 "I've attached a short piece on what a website actually does for a business " .
-                "like {{company}} — where customers look before they call, what a site does " .
+                "like {{company}}: where customers look before they call, what a site does " .
                 "that a social page can't, and what separates one that brings in work from " .
                 "one that just sits there.\n\n" .
                 "The last page covers how I'd help. If it's worth a conversation, tell me a " .
@@ -63,16 +62,16 @@ function email_templates(): array {
         ],
         'local-growth' => [
             'name'    => 'Getting found locally',
-            'blurb'   => 'Local search, reviews and instant follow-up — with setup steps and pricing.',
+            'blurb'   => 'Local search, reviews and instant follow-up, with setup steps and pricing.',
             'subject' => 'Getting {{company}} found locally',
             'body'    =>
                 "Hi {{first_name}},\n\n" .
                 "I've attached a short piece on the work that happens after a website is " .
-                "live — getting {{company}} into the map results people actually call from, " .
+                "live: getting {{company}} into the map results people actually call from, " .
                 "keeping reviews coming in without chasing anyone, and answering a new " .
                 "enquiry in about a minute instead of the next morning.\n\n" .
                 "It covers what setting it up involves, what I'd need from you, and what it " .
-                "costs. The audit at the start is free either way — tell me a time that " .
+                "costs. The audit at the start is free either way. Tell me a time that " .
                 "suits you and I'll call you.\n\n" .
                 "Thanks,\nHamud",
             'file'    => 'weyney-local-growth.pdf',

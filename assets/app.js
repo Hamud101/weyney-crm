@@ -807,24 +807,36 @@
       '</div></div></div>';
   }
 
-  /* The nine catalogue services, each tickable on its own. This replaced three
-     fixed tier buttons: a tier is a guess at what someone wants, and every real
-     deal so far has been a subset with its own price. Ticking is also what the
-     agreement needs — each checked line becomes a bullet in Section 1 and a fee
-     line in Section 3.
+  /* The catalogue, each tickable on its own. This replaced three fixed tier
+     buttons: a tier is a guess at what someone wants, and every real deal so
+     far has been a subset with its own price. Ticking is also what the
+     agreement needs, because each checked line becomes a bullet in Section 1
+     and a fee line in Section 3.
 
-     `amount` is a starting number from documents/service-catalogue-and-business-plan.md
-     and is editable on every line. `kind` is what the fee IS, not when it is
-     billed — prepaying twelve months of a monthly fee is a separate switch. */
+     `amount` is a starting number from the October 2026 price structure and is
+     editable on every line. `kind` is what the fee IS, not when it is billed.
+     The six month prepay is a separate call only switch below. */
   var SERVICES = [
-    { id:'website',   label:'Website build',        amount:500, kind:'once',
-      desc:'Design and build a custom multi-page website — Home, About, Services and Contact — built around the Client’s existing logo and brand, with a contact form.' },
-    { id:'hosting',   label:'Hosting',              amount:75,  kind:'monthly',
-      /* Prepaying buys a lower monthly rate: 0 = month to month, then the term
-         in months. The ladder lives here rather than in the term picker so that
-         only the services which actually have one are ever repriced. */
-      rates:{ 0:50, 6:45, 12:40 },
-      desc:'Hosting the website on Weyney Media’s infrastructure, including uptime monitoring, regular backups, and SSL.' },
+    { id:'foundation_setup', label:'Foundation setup', amount:750, kind:'once',
+      desc:'Setting up the Google Business Profile and the instant reply system, and writing the 30 day launch list.' },
+    { id:'foundation', label:'Foundation', amount:450, kind:'monthly',
+      desc:'Keeping the Google profile current every month, asking every customer for a review and replying to every review, answering web forms and missed calls day and night, and sending a one page report every month.' },
+    { id:'od_setup', label:'Owned Demand setup', amount:2000, kind:'once',
+      desc:'Building the website, the pages for the jobs the Client wants more of, the follow up series, the response time log and the quarterly campaign.' },
+    { id:'owned_demand', label:'Owned Demand', amount:1250, kind:'monthly',
+      desc:'Keeping the website working and running the follow ups, the response time log and a quarterly campaign to past customers, alongside everything in Foundation.' },
+    { id:'gp_setup', label:'Growth Partner setup', amount:3000, kind:'once',
+      desc:'Setting up Google Local Services Ads and search ads on top of everything in Owned Demand.' },
+    { id:'growth_partner', label:'Growth Partner', amount:2000, kind:'monthly',
+      desc:'Managing the Google ads every week and adding new photos and posts to the Google profile every month, with all ad spend paid by the Client directly to Google and no markup.' },
+    { id:'website_only', label:'Website only', amount:2500, kind:'once',
+      desc:'Building a website that turns visitors into calls, in the Client’s name and on the Client’s own hosting.' },
+    { id:'site_care', label:'Site care (website only clients, call only)', amount:100, kind:'monthly',
+      desc:'Hosting, backups and small text changes for a website only client who does not host the site themselves.' },
+    { id:'hourly', label:'Extra work, 2 hour block at $150 an hour', amount:300, kind:'once',
+      desc:'Work outside the plan, quoted first and billed at $150 an hour in blocks of at least two hours.' },
+    /* Clinic and care provider extras. They describe what the plan bullets mean
+       for a clinic; price comes from the plan. */
     { id:'refsheet',  label:'Provider referral sheet', amount:0, kind:'once',
       desc:'A one-page referral sheet, print and PDF, written for case managers.' },
     { id:'refpage',   label:'Case-manager referral page', amount:0, kind:'monthly',
@@ -833,8 +845,8 @@
       desc:'Current openings published where referrers can see them, updated monthly.' },
     { id:'gbp',       label:'Google Business Profile', amount:0, kind:'monthly',
       desc:'Setting up and maintaining the Google Business Profile panel.' },
-    { id:'recruiting',label:'Recruiting campaign',  amount:500, kind:'once',
-      desc:'Filling open clinical positions, run as a marketing campaign.' },
+    { id:'recruiting',label:'Recruiting campaign',  amount:0, kind:'once',
+      desc:'Monthly hiring campaign, swapped in for the ads line on Growth Partner for care providers.' },
     { id:'multiling', label:'Multilingual delivery',amount:350, kind:'once',
       desc:'Site and print materials in the languages the Client’s families actually speak.' },
     { id:'tracking',  label:'Referral source tracking', amount:0, kind:'monthly',
@@ -847,21 +859,16 @@
     return null;
   }
 
-  /* The terms actually offered. Longer commitment, bigger discount — the whole
-     point being that the year keeps something the half year does not, so there
-     is still a reason to sign one. Any other number can still be typed in. */
-  var TERMS = [{ months:6, off:'10% off' }, { months:12, off:'20% off' }];
-
-  /* Reprice every prepaid-sensitive line for a term. Services with no `rates`
-     ladder are left exactly as they are, including anything typed by hand. */
-  function applyTermRates(p, months) {
-    (p.lines || []).forEach(function (li) {
-      var s = serviceById(li.id);
-      if (!s || !s.rates || li.kind !== 'monthly') return;
-      var key = p.prepaid ? months : 0;
-      if (s.rates[key] != null) li.amount = s.rates[key];
-    });
+  /* Six month prepay is call only. It applies only when the whole ticked
+     package is one of the two plans it belongs to, and it trades the setup fee
+     for six months paid up front. */
+  function prepayPlan(p) {
+    var ids = ((p && p.lines) || []).map(function (l) { return l.id; }).sort().join(',');
+    if (ids === 'od_setup,owned_demand') return 'od';
+    if (ids === 'gp_setup,growth_partner') return 'gp';
+    return null;
   }
+  function prepayTotal(plan) { return plan === 'od' ? 7500 : plan === 'gp' ? 12000 : 0; }
 
   function readProposal(l) {
     if (!l || !l.proposal) return null;
@@ -906,16 +913,16 @@
            '-' + String(d.getDate()).padStart(2, '0');
   }
 
-  /* Due on signing = every one-off line, plus the monthly lines either prepaid
-     for the whole term or just the first month. Mirrors the server exactly, so
-     the sheet can never show a figure the document contradicts. */
+  /* Due on signing = every line at its list amount, unless the call only six
+     month prepay is on, which replaces the whole thing with one fixed figure.
+     Mirrors the server exactly, so the sheet can never show a figure the
+     document contradicts. */
   function proposalTotal(p) {
     if (!p) return 0;
-    var t = 0, term = +p.term_months || 12;
-    (p.lines || []).forEach(function (l) {
-      var a = +l.amount || 0;
-      t += l.kind === 'monthly' ? (p.prepaid ? a * term : a) : a;
-    });
+    var plan = p.prepaid ? prepayPlan(p) : null;
+    if (plan) return prepayTotal(plan);
+    var t = 0;
+    (p.lines || []).forEach(function (l) { t += +l.amount || 0; });
     return t;
   }
   function monthlyTotal(p) {
@@ -937,9 +944,10 @@
       '<div class="propbox">' +
         '<dl class="facts">' +
           (p.lines || []).map(function (li) {
-            return '<dt>' + esc(li.label) + '</dt><dd>' + money(li.amount) +
+            var amt = (p.prepaid && li.kind !== 'monthly') ? 0 : li.amount;
+            return '<dt>' + esc(li.label) + '</dt><dd>' + money(amt) +
                    (li.kind === 'monthly'
-                     ? '/mo' + (p.prepaid ? ' · ' + (p.term_months || 12) + ' mo prepaid' : '')
+                     ? '/mo' + (p.prepaid ? ' · six months prepaid' : '')
                      : ' one-time') + '</dd>';
           }).join('') +
         '</dl>' +
@@ -1322,6 +1330,7 @@
       }).join('');
 
       var mo = monthlyTotal(p);
+      var pp = prepayPlan(p);
       var doc = S.sheet.madeDoc;
       var due = proposalTotal(p);
 
@@ -1337,25 +1346,16 @@
             '<div class="svclist">' + list + '</div>' +
           '</div>' +
           '<div class="prright">' +
-            (mo
+            (pp
               ? '<label class="chk"><input type="checkbox" id="pr-prepaid"' +
-                  (p.prepaid ? ' checked' : '') + '> Prepay the monthly fees up front</label>' +
+                  (p.prepaid ? ' checked' : '') + '> Six month prepay, setup waived (call only)</label>' +
                 (p.prepaid
-                  ? '<div><label>Term <span class="opt">— months prepaid</span></label>' +
-                    /* Presets first, because these two are what gets sold; the
-                       box below still takes any number for a one-off deal. */
-                    '<div class="terms">' +
-                      TERMS.map(function (t) {
-                        return '<button type="button" class="term' +
-                          (+p.term_months === t.months ? ' on' : '') +
-                          '" data-term="' + t.months + '">' + t.months + ' months' +
-                          '<span>' + t.off + '</span></button>';
-                      }).join('') +
-                    '</div>' +
-                    '<input id="pr-term" type="number" min="1" max="60" value="' +
-                    (+p.term_months || 12) + '"></div>'
+                  ? '<div class="hint">' + money(prepayTotal(pp)) + ' for six months of ' +
+                    (pp === 'od' ? 'Owned Demand' : 'Growth Partner') +
+                    ', setup waived, due before kickoff.</div>'
                   : '')
-              : '<p class="hint">Tick a per-month service to set a prepaid term.</p>') +
+              : '<p class="hint">Prepay is offered only when the whole package is ' +
+                'Owned Demand or Growth Partner.</p>') +
             '<div class="pgrid">' +
               '<div><label>Change fee <span class="opt">— per request</span></label>' +
                 '<input id="pr-changefee" type="number" min="0" step="5" value="' +
@@ -1386,7 +1386,7 @@
             '<b class="prsumval">' + money(due) + '</b>' +
             (mo
               ? '<span class="prsummo">' + (p.prepaid
-                  ? 'includes ' + money(mo) + '/mo × ' + (p.term_months || 12)
+                  ? 'six months prepaid, setup waived'
                   : 'then ' + money(mo) + '/mo') + '</span>'
               : '') +
           '</div>' +
@@ -1816,8 +1816,7 @@
     app.querySelectorAll('[data-dproposal]').forEach(function (el) {
       el.onclick = function () {
         var p = readProposal(S.detail) ||
-          { lines:[], term_months:12, prepaid:false, change_fee:50,
-            date:todayISO(), notes:'' };
+          { lines:[], prepaid:false, change_fee:50, date:todayISO(), notes:'' };
         S.sheet = { kind:'proposal', lead:S.detail, p:p, madeDoc:null };
         render();
       };
@@ -1826,7 +1825,6 @@
        total is right and nothing typed is lost when a tick redraws the sheet. */
     function prRead() {
       var p = S.sheet.p, g = function (id) { return document.getElementById(id); };
-      if (g('pr-term'))      p.term_months = +g('pr-term').value || 12;
       if (g('pr-notes'))     p.notes       = g('pr-notes').value;
       if (g('pr-changefee')) p.change_fee  = +g('pr-changefee').value || 0;
       if (g('pr-date'))      p.date        = g('pr-date').value;
@@ -1836,6 +1834,7 @@
         if (amt) li.amount = +amt.value || 0;
         if (knd) li.kind   = knd.value;
       });
+      if (p.prepaid && !prepayPlan(p)) p.prepaid = false;
     }
     app.querySelectorAll('[data-svc]').forEach(function (el) {
       if (el.type === 'checkbox') {
@@ -1845,7 +1844,7 @@
           if (el.checked) {
             var s = serviceById(id);
             /* Keep catalogue order however they are ticked — the agreement
-               reads website-then-hosting, not click order. */
+               reads setup before monthly, not click order. */
             p.lines = (p.lines || []).concat([
               { id:s.id, label:s.label, amount:s.amount, kind:s.kind, desc:s.desc }
             ]).sort(function (a, b) {
@@ -1854,6 +1853,7 @@
           } else {
             p.lines = (p.lines || []).filter(function (x) { return x.id !== id; });
           }
+          if (p.prepaid && !prepayPlan(p)) p.prepaid = false;
           render();
         };
       } else {
@@ -1861,27 +1861,10 @@
         el.onchange = function () { prRead(); render(); };
       }
     });
-    var prTerm = document.getElementById('pr-term');
-    /* Typing a term is deliberately rate-neutral. Only the presets reprice, so
-       an amount set by hand is never overwritten by a stray keystroke. */
-    if (prTerm) prTerm.oninput = function () { prRead(); render(); };
-    app.querySelectorAll('[data-term]').forEach(function (el) {
-      el.onclick = function () {
-        prRead();
-        var p = S.sheet.p;
-        p.term_months = +el.dataset.term;
-        applyTermRates(p, p.term_months);
-        render();
-      };
-    });
     var prPre = document.getElementById('pr-prepaid');
     if (prPre) prPre.onchange = function () {
       prRead();
       S.sheet.p.prepaid = prPre.checked;
-      if (S.sheet.p.prepaid && !S.sheet.p.term_months) S.sheet.p.term_months = 12;
-      /* Dropping the prepay has to hand back the standard rate, or the discount
-         silently survives the commitment that earned it. */
-      applyTermRates(S.sheet.p, S.sheet.p.term_months);
       render();
     };
 
