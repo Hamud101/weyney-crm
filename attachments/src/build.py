@@ -38,6 +38,8 @@ DOCS = {
     "core-services":    "weyney-core-services",
     "website-benefits": "weyney-website-benefits",
     "local-growth":     "weyney-local-growth",
+    "how-we-work":      "weyney-how-we-work",
+    "what-we-need":     "weyney-what-we-need",
 }
 
 

@@ -77,6 +77,36 @@ function email_templates(): array {
             'file'    => 'weyney-local-growth.pdf',
             'as'      => 'Weyney Media - Getting Found Locally.pdf',
         ],
+        'how-we-work' => [
+            'name'    => 'How we work (new client)',
+            'blurb'   => 'Day one handout: the first 30 days, the guarantee, the monthly report, terms.',
+            'subject' => 'Welcome aboard, here is how we work',
+            'body'    =>
+                "Hi {{first_name}},\n\n" .
+                "Thanks for choosing Weyney Media. I've attached a one page guide to how we " .
+                "work: what happens in your first 30 days, the launch guarantee, what your " .
+                "monthly report shows, and what we never promise.\n\n" .
+                "A second email has the short list of what I need from you to get started. " .
+                "Questions at any point, just reply or call.\n\n" .
+                "Thanks,\nHamud",
+            'file'    => 'weyney-how-we-work.pdf',
+            'as'      => 'Weyney Media - How We Work.pdf',
+        ],
+        'what-we-need' => [
+            'name'    => 'What we need from you',
+            'blurb'   => 'Day one checklist: access, photos, customer lists. The guarantee clock pauses until these arrive.',
+            'subject' => 'What I need to get {{company}} started',
+            'body'    =>
+                "Hi {{first_name}},\n\n" .
+                "Attached is the short checklist of what I need to start: access to your " .
+                "Google profile and website, your logo, ten real photos, and your customer " .
+                "lists. The sooner these arrive, the sooner everything on your launch list " .
+                "goes live.\n\n" .
+                "Send what you can now and the rest as you find it.\n\n" .
+                "Thanks,\nHamud",
+            'file'    => 'weyney-what-we-need.pdf',
+            'as'      => 'Weyney Media - What We Need From You.pdf',
+        ],
     ];
 }
 
